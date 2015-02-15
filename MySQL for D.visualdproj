@@ -1,0 +1,16 @@
+<DProject>
+ <ProjectGuid>ca981a2c-0c08-4d73-8099-2c26e132841f</ProjectGuid>
+ <Config name="Debug">
+  <!-- default to defaults -->
+  <exefile>$(OutDir)\$(ProjectName).dll</exefile>
+  <lib>2</lib>
+ </Config>
+ <Config name="Release">
+  <exefile>$(OutDir)\$(ProjectName).dll</exefile>
+  <lib>2</lib>
+ </Config>
+ <Folder name="MySQL_for_D">
+  <File path="dllmain.d" />
+  <File path="dll.def" />
+ </Folder>
+</DProject>
