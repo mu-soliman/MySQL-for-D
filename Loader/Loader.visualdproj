@@ -1,9 +1,9 @@
 <DProject>
- <ProjectGuid>{CA981A2C-0C08-4D73-8099-2C26E132841F}</ProjectGuid>
- <Config name="Debug" platform="Win32">
+ <ProjectGuid>{E4510F3F-D1B6-4B2D-BA10-16C05745250F}</ProjectGuid>
+ <Config name="Debug" platform="x64">
   <obj>0</obj>
   <link>0</link>
-  <lib>2</lib>
+  <lib>0</lib>
   <subsystem>0</subsystem>
   <multiobj>0</multiobj>
   <singleFileCompilation>0</singleFileCompilation>
@@ -17,7 +17,7 @@
   <symdebug>1</symdebug>
   <optimize>0</optimize>
   <cpu>0</cpu>
-  <isX86_64>0</isX86_64>
+  <isX86_64>1</isX86_64>
   <isLinux>0</isLinux>
   <isOSX>0</isOSX>
   <isWindows>0</isWindows>
@@ -53,7 +53,7 @@
   <cccmd>$(CC) -c</cccmd>
   <ccTransOpt>1</ccTransOpt>
   <program>$(DMDInstallDir)windows\bin\dmd.exe</program>
-  <imppath />
+  <imppath>$(SolutionDir)\MySQL-for-D</imppath>
   <fileImppath />
   <outdir>$(ConfigurationName)</outdir>
   <objdir>$(OutDir)</objdir>
@@ -89,11 +89,11 @@
   <cv2pdbOptions />
   <objfiles />
   <linkswitches />
-  <libfiles>$(OutDir)\$(ProjectName).lib</libfiles>
-  <libpaths />
+  <libfiles>MySQL_for_D.lib</libfiles>
+  <libpaths>$(SolutionDir)\MySQL-for-D\Debug</libpaths>
   <deffile />
   <resfile />
-  <exefile>$(OutDir)\$(ProjectName).dll</exefile>
+  <exefile>$(OutDir)\$(ProjectName).exe</exefile>
   <useStdLibPath>1</useStdLibPath>
   <cRuntime>2</cRuntime>
   <additionalOptions />
@@ -101,10 +101,10 @@
   <postBuildCommand />
   <filesToClean>*.obj;*.cmd;*.build;*.json;*.dep</filesToClean>
  </Config>
- <Config name="Release" platform="Win32">
+ <Config name="Release" platform="x64">
   <obj>0</obj>
   <link>0</link>
-  <lib>2</lib>
+  <lib>0</lib>
   <subsystem>0</subsystem>
   <multiobj>0</multiobj>
   <singleFileCompilation>0</singleFileCompilation>
@@ -118,7 +118,7 @@
   <symdebug>0</symdebug>
   <optimize>0</optimize>
   <cpu>0</cpu>
-  <isX86_64>0</isX86_64>
+  <isX86_64>1</isX86_64>
   <isLinux>0</isLinux>
   <isOSX>0</isOSX>
   <isWindows>0</isWindows>
@@ -194,7 +194,7 @@
   <libpaths />
   <deffile />
   <resfile />
-  <exefile>$(OutDir)\$(ProjectName).dll</exefile>
+  <exefile>$(OutDir)\$(ProjectName).exe</exefile>
   <useStdLibPath>1</useStdLibPath>
   <cRuntime>1</cRuntime>
   <additionalOptions />
@@ -202,8 +202,7 @@
   <postBuildCommand />
   <filesToClean>*.obj;*.cmd;*.build;*.json;*.dep</filesToClean>
  </Config>
- <Folder name="MySQL_for_D">
-  <File path="DatabaseHandler.d" />
-  <File path="dllmain.d" />
+ <Folder name="Loader">
+  <File path="main.d" />
  </Folder>
 </DProject>

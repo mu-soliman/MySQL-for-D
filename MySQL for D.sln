@@ -3,18 +3,30 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2013
 VisualStudioVersion = 12.0.30501.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{002A2DE9-8BB6-484D-9802-7E4AD4084715}") = "MySQL_for_D", "MySQL for D.visualdproj", "{CA981A2C-0C08-4D73-8099-2C26E132841F}"
+Project("{002A2DE9-8BB6-484D-9802-7E4AD4084715}") = "MySQL_for_D", "MySQL-for-D\MySQL-for-D.visualdproj", "{DF6799E4-DAEC-44C1-8F84-5ECB3BD10E00}"
+EndProject
+Project("{002A2DE9-8BB6-484D-9802-7E4AD4084715}") = "Loader", "Loader\Loader.visualdproj", "{E4510F3F-D1B6-4B2D-BA10-16C05745250F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
+		Debug|x64 = Debug|x64
 		Release|Win32 = Release|Win32
+		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{CA981A2C-0C08-4D73-8099-2C26E132841F}.Debug|Win32.ActiveCfg = Debug|Win32
-		{CA981A2C-0C08-4D73-8099-2C26E132841F}.Debug|Win32.Build.0 = Debug|Win32
-		{CA981A2C-0C08-4D73-8099-2C26E132841F}.Release|Win32.ActiveCfg = Release|Win32
-		{CA981A2C-0C08-4D73-8099-2C26E132841F}.Release|Win32.Build.0 = Release|Win32
+		{DF6799E4-DAEC-44C1-8F84-5ECB3BD10E00}.Debug|Win32.ActiveCfg = Debug|x64
+		{DF6799E4-DAEC-44C1-8F84-5ECB3BD10E00}.Debug|x64.ActiveCfg = Debug|x64
+		{DF6799E4-DAEC-44C1-8F84-5ECB3BD10E00}.Debug|x64.Build.0 = Debug|x64
+		{DF6799E4-DAEC-44C1-8F84-5ECB3BD10E00}.Release|Win32.ActiveCfg = Release|x64
+		{DF6799E4-DAEC-44C1-8F84-5ECB3BD10E00}.Release|x64.ActiveCfg = Release|x64
+		{DF6799E4-DAEC-44C1-8F84-5ECB3BD10E00}.Release|x64.Build.0 = Release|x64
+		{E4510F3F-D1B6-4B2D-BA10-16C05745250F}.Debug|Win32.ActiveCfg = Debug|x64
+		{E4510F3F-D1B6-4B2D-BA10-16C05745250F}.Debug|x64.ActiveCfg = Debug|x64
+		{E4510F3F-D1B6-4B2D-BA10-16C05745250F}.Debug|x64.Build.0 = Debug|x64
+		{E4510F3F-D1B6-4B2D-BA10-16C05745250F}.Release|Win32.ActiveCfg = Release|x64
+		{E4510F3F-D1B6-4B2D-BA10-16C05745250F}.Release|x64.ActiveCfg = Release|x64
+		{E4510F3F-D1B6-4B2D-BA10-16C05745250F}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

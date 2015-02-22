@@ -1,9 +1,9 @@
 <DProject>
- <ProjectGuid>{CA981A2C-0C08-4D73-8099-2C26E132841F}</ProjectGuid>
- <Config name="Debug" platform="Win32">
+ <ProjectGuid>{DF6799E4-DAEC-44C1-8F84-5ECB3BD10E00}</ProjectGuid>
+ <Config name="Debug" platform="x64">
   <obj>0</obj>
   <link>0</link>
-  <lib>2</lib>
+  <lib>1</lib>
   <subsystem>0</subsystem>
   <multiobj>0</multiobj>
   <singleFileCompilation>0</singleFileCompilation>
@@ -17,7 +17,7 @@
   <symdebug>1</symdebug>
   <optimize>0</optimize>
   <cpu>0</cpu>
-  <isX86_64>0</isX86_64>
+  <isX86_64>1</isX86_64>
   <isLinux>0</isLinux>
   <isOSX>0</isOSX>
   <isWindows>0</isWindows>
@@ -33,7 +33,7 @@
   <useArrayBounds>0</useArrayBounds>
   <noboundscheck>0</noboundscheck>
   <useSwitchError>0</useSwitchError>
-  <useUnitTests>0</useUnitTests>
+  <useUnitTests>1</useUnitTests>
   <useInline>0</useInline>
   <release>0</release>
   <preservePaths>0</preservePaths>
@@ -42,7 +42,7 @@
   <checkProperty>0</checkProperty>
   <genStackFrame>0</genStackFrame>
   <pic>0</pic>
-  <cov>0</cov>
+  <cov>1</cov>
   <nofloat>0</nofloat>
   <Dversion>2</Dversion>
   <ignoreUnsupportedPragmas>0</ignoreUnsupportedPragmas>
@@ -75,7 +75,7 @@
   <versionids />
   <dump_source>0</dump_source>
   <mapverbosity>0</mapverbosity>
-  <createImplib>0</createImplib>
+  <createImplib>1</createImplib>
   <defaultlibname />
   <debuglibname />
   <moduleDepsFile />
@@ -89,11 +89,11 @@
   <cv2pdbOptions />
   <objfiles />
   <linkswitches />
-  <libfiles>$(OutDir)\$(ProjectName).lib</libfiles>
+  <libfiles />
   <libpaths />
   <deffile />
   <resfile />
-  <exefile>$(OutDir)\$(ProjectName).dll</exefile>
+  <exefile>$(OutDir)\$(ProjectName).lib</exefile>
   <useStdLibPath>1</useStdLibPath>
   <cRuntime>2</cRuntime>
   <additionalOptions />
@@ -101,7 +101,7 @@
   <postBuildCommand />
   <filesToClean>*.obj;*.cmd;*.build;*.json;*.dep</filesToClean>
  </Config>
- <Config name="Release" platform="Win32">
+ <Config name="Release" platform="x64">
   <obj>0</obj>
   <link>0</link>
   <lib>2</lib>
@@ -118,7 +118,7 @@
   <symdebug>0</symdebug>
   <optimize>0</optimize>
   <cpu>0</cpu>
-  <isX86_64>0</isX86_64>
+  <isX86_64>1</isX86_64>
   <isLinux>0</isLinux>
   <isOSX>0</isOSX>
   <isWindows>0</isWindows>
@@ -203,7 +203,10 @@
   <filesToClean>*.obj;*.cmd;*.build;*.json;*.dep</filesToClean>
  </Config>
  <Folder name="MySQL_for_D">
+  <Folder name="Common">
+   <File path="Common\Exceptions.d" />
+   <File path="Common\Functions.d" />
+  </Folder>
   <File path="DatabaseHandler.d" />
-  <File path="dllmain.d" />
  </Folder>
 </DProject>

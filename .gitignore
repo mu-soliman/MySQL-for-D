@@ -1,1 +1,6 @@
 *.suo
+*.pdb
+*.obj
+/MySQL-for-D/Debug
+/Loader/Debug
+*.userprefs
