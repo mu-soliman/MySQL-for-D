@@ -6,7 +6,7 @@ import Common.Exceptions;
 
 
 /************************************
-*Read a null terminated string from an unsigned byte array. 
+*Read a null terminated string from an unsigned byte array. If it is not null terminated it reads till the end of the array
 
 *Reading starts fron index 0 till the first null terminated string. The bytes that are consumed are removed from the input byte array
 
@@ -14,27 +14,20 @@ import Common.Exceptions;
 */
 string ReadString(ref ubyte[] input)
 {
-	ulong indexOfFirstNullCharacter = 0;
-	bool nullStringFound = false;
-
+	ulong indexOfLastCharacter = input.length -1;
 	foreach(i, b; input)
 	{
 		if (b =='\0')
 		{
-			indexOfFirstNullCharacter = i;
-			nullStringFound = true;
+			indexOfLastCharacter = i;
 			break;
 		}
 	}
-	if (!nullStringFound)
-	{
-		throw new InvalidArgumentException("No null character in input");
-	}
 	
-	char[] characters = cast (char[]) input[0..indexOfFirstNullCharacter];
+	char[] characters = cast (char[]) input[0..indexOfLastCharacter+1];
 	
 	//remove consumed characters from input array 
-	input = input[indexOfFirstNullCharacter+1 .. $];
+	input = input[indexOfLastCharacter+1 .. $];
 
 	return cast (string) characters;
 }
