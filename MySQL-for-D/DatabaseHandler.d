@@ -283,7 +283,6 @@ unittest{
 
 	ConnectionParameters parameters = new ConnectionParameters();
 	parameters.ServerAddress = configurationFile.GetValue("ServerAddress");
-	string port = configurationFile.GetValue("Port");
 	parameters.Port = to!ushort (configurationFile.GetValue("Port") );
 	parameters.Username = configurationFile.GetValue("Username");
 	parameters.Password = configurationFile.GetValue("Password");
