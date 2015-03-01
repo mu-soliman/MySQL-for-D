@@ -4,7 +4,6 @@ Module to contain all helper general purpose functions
 module Common.Functions;
 import Common.Exceptions;
 
-
 /************************************
 *Read a null terminated string from an unsigned byte array. If it is not null terminated it reads till the end of the array
 
@@ -30,5 +29,16 @@ string ReadString(ref ubyte[] input)
 	input = input[indexOfLastCharacter+1 .. $];
 
 	return cast (string) characters;
+}
+/*************************************
+Write a string to a byte array starting from a given index. The index is set to the first array element after the added string
+*/
+void WriteString(ref ubyte[] byteArray,string inputString,ref uint index)
+{
+	foreach(character;inputString)
+	{
+		byteArray[index]=character;
+		index++;
+	}
 }
 

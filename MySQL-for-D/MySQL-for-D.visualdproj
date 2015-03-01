@@ -208,5 +208,6 @@
    <File path="Common\Functions.d" />
   </Folder>
   <File path="DatabaseHandler.d" />
+  <File path="YamlFile.d" />
  </Folder>
 </DProject>
