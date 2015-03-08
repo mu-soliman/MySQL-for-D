@@ -47,10 +47,12 @@ private class Connection {
 	{
 		return _ProtocolVersion;
 	}
+	
 	public @property ServerVersion ()
 	{
 		return _ServerVersion;
 	}
+	
 	public this()
 	{
 		_Socket = new TcpSocket();
@@ -102,6 +104,7 @@ private class Connection {
 	{
 
 	}
+	
 	private void ProcessInitialHandshakeMessage(ref ubyte[] initialHandshakeMessage)
 	{
 		_ProtocolVersion = initialHandshakeMessage[0];
@@ -222,6 +225,7 @@ private class Connection {
 		 _Socket.send(handshakeResponseMessage[0..currentIndex]);
 
 	}
+	
 	private uint GenerateCapabilityFlags()
 	{
 		uint capabilities =0;
@@ -233,6 +237,7 @@ private class Connection {
 
 		return capabilities;
 	}
+	
 	private ubyte[] GenerateAuthenticationResponse()
 	{
 		ubyte[] hashedPassword = sha1Of(_ConnectionParameters.Password);
@@ -250,6 +255,7 @@ private class Connection {
 		}
 		return authenticationResponse;
 	}
+	
 	private void HandleServerHandshakeResponse()
 	{
 		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
@@ -281,6 +287,7 @@ private class Connection {
 		}
 
 	}
+	
 	private void HandleErrorPacket(ubyte[]packet, uint packetSequenceNumber)
 	{
 		//first byte is 0xff, error indicator. Since the call was passed here we assume its value and skip it
@@ -294,6 +301,7 @@ private class Connection {
 		throw new ConnectionException(errorMessage,errorCode);
 		
 	}
+	
 	private void HanldeOkPacket(ubyte[]packet,uint packetSequenceNumber)
 	{
 		//first byte is 0x00, ok indicator. Since the call was passed here we assume its value and skip it
@@ -306,6 +314,7 @@ private class Connection {
 
 
 	}
+	
 	void Disconnect()
 	{
 		_Socket.shutdown(SocketShutdown.BOTH);
@@ -367,6 +376,7 @@ extern class ConnectionParameters
 	}
 
 }
+
 extern class ConnectionException:Exception
 {
 	private uint _ErrorCode;
@@ -392,6 +402,7 @@ extern class ConnectionException:Exception
 	}
 
 }
+
 extern class DatabaseHandler
 {
 	private Connection _Connection;
@@ -409,6 +420,7 @@ extern class DatabaseHandler
 	}
 
 }
+
 unittest{
 	
 	import TestingHelper;
