@@ -2,7 +2,10 @@
 Module to contain all helper general purpose functions
 */
 module Common.Functions;
+
 import Common.Exceptions;
+import std.bitmanip;
+import std.system;
 
 /************************************
 *Read a null terminated string from an unsigned byte array. If it is not null terminated it reads till the end of the array
@@ -23,7 +26,9 @@ string ReadString(ref ubyte[] input)
 		}
 	}
 	
-	char[] characters = cast (char[]) input[0..indexOfLastCharacter+1];
+	char[] characters;
+	characters.length= indexOfLastCharacter+1;
+	characters[] = cast (char[]) input[0..indexOfLastCharacter+1];
 	
 	//remove consumed characters from input array 
 	input = input[indexOfLastCharacter+1 .. $];
@@ -40,5 +45,41 @@ void WriteString(ref ubyte[] byteArray,string inputString,ref uint index)
 		byteArray[index]=character;
 		index++;
 	}
+}
+/***************************************************************
+A length encoded integer is an integer that consumes 1, 3, 4, or 9 bytes, depending on its numeric value. The bytes of the int are consumed from input array
+*/
+ulong ReadLengthEncodedInteger(ref ubyte[] input)
+{
+	if (input[0] < 0xfb)
+	{
+		//1 byte integer
+		uint result = input[0];
+		input = input[1..$];
+		return result;
+	}
+	if (input[0] == 0xfc)
+	{
+		//two bytes integer
+		input = input[1..$];
+		ushort result = read!(ushort,endian.littleEndian)(input);
+		return result;
+	}
+	if (input[0]==0xfd)
+	{
+		//four bytes integer
+		input = input[1..$];
+		uint result = read!(uint,endian.littleEndian)(input);
+		return result;
+	}
+	if (input[0]== 0xfe)
+	{
+		//eight bytes integer
+		input = input[1..$];
+		ulong result = read!(ulong,endian.littleEndian)(input);
+		return result;
+	}
+	throw new InvalidArgumentException("Invalid input value");
+	
 }
 

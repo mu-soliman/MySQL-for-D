@@ -3,6 +3,7 @@ import std.socket;
 import std.bitmanip;
 import std.system;
 import std.stdio;
+import std.digest.sha;
 import Common.Functions;
 import Common.Exceptions;
 
@@ -12,27 +13,34 @@ handler user, this is why it is private class
 */
 private class Connection {
 
-	static const uint AUTH_PLUGIN_DATA_PART1_LENGTH			=	8;
-	static const uint RESERVED_SERVER_STRING_LENGTH			=	10;
-	static const uint SERVER_STATUS_LENGTH					=	2;
+	static const uint AUTHENTICATION_PLUGIN_DATA_PART1_LENGTH			=	8;
+	static const uint RESERVED_SERVER_STRING_LENGTH						=	10;
+	static const uint SERVER_STATUS_LENGTH								=	2;
 
-	static const uint RESERVED_CLIENT_STRING_LENGTH			=	23;
+	static const uint RESERVED_CLIENT_STRING_LENGTH						=	23;
 
 	private ConnectionParameters	_ConnectionParameters;
 	private uint					_ProtocolVersion;
 	private Socket					_Socket;
 	private string					_ServerVersion;
 	private uint					_ConnectionId;
-	private string					_AuthPluginName;
+	private string					_AuthenticationPluginName;
 	private ubyte					_ServerCharacterSet;
 	private uint					_ServerCapabilities;
 	private ubyte[2]				_ServerStatus;
+	private ubyte[]					_ServerAuthenticationPluginData;
+
+	/*********************************************************************
+	Buffer used for differnt tasks to avoid successive allocation and deallocation
+	*/
+	private ubyte[]					_TempBuffer;
 
 	private enum CapabilityFlags
 	{
-		CLIENT_PROTOCOL_41		=	0x00000200,
-		CLIENT_LONG_PASSWORD	=	0x00000001,
-		CLIENT_CONNECT_WITH_DB  =   0x00000008 
+		CLIENT_PROTOCOL_41			=	0x00000200,
+		CLIENT_LONG_PASSWORD		=	0x00000001,
+		CLIENT_CONNECT_WITH_DB		=   0x00000008,
+		CLIENT_SECURE_CONNECTION	=   0x00008000 
 	}
 
 	public @property uint ProtocolVersion()
@@ -46,14 +54,17 @@ private class Connection {
 	public this()
 	{
 		_Socket = new TcpSocket();
+		_TempBuffer.length = 256;
 	}
 
 	public void Connect(ConnectionParameters parameters)
 	{
 		_ConnectionParameters = parameters;
 		_Socket.connect(new InternetAddress(parameters.ServerAddress,parameters.Port));
-		ubyte[] buffer;
-		buffer.length = 256;
+		
+		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
+		ubyte[] buffer = _TempBuffer;
+		
 		_Socket.receive(buffer);
 
 		//packet size is found in the first three bytes
@@ -61,16 +72,18 @@ private class Connection {
 		packetSizeBytes[0..3]= buffer[0..3];
 		//add a forth byte to be able to convert to a uint
 		packetSizeBytes[3]=0;
+		
 		uint packetSize = peek! (uint,Endian.littleEndian)(cast (ubyte[]) packetSizeBytes);
-
-		//remove useless bytes
-		buffer = buffer[0..packetSize-1];
 		//remove bytes we have already consumed
 		buffer = buffer[3..$];
-
+		
 		uint packetSequenceNumber = cast (uint) buffer[0];
 		//once again remove bytes we have consumed
 		buffer = buffer[1..$];
+
+		//remove useless bytes
+		buffer = buffer[0..packetSize-1];
+		
 
 		ushort initial_byte = buffer[0];
 
@@ -79,7 +92,8 @@ private class Connection {
 		else
 		{
 			ProcessInitialHandshakeMessage(buffer);
-			SendHandshakeResponseMessage();
+			SendClientHandshakeResponseMessage();
+			HandleServerHandshakeResponse();
 		}
 
 	}
@@ -97,9 +111,9 @@ private class Connection {
 		_ServerVersion = ReadString(initialHandshakeMessage);
 		_ConnectionId = read! (uint,Endian.littleEndian)(initialHandshakeMessage);
 
-		ubyte[] authPluginDataPart1 = initialHandshakeMessage[0..AUTH_PLUGIN_DATA_PART1_LENGTH];
+		ubyte[] authPluginDataPart1 = initialHandshakeMessage[0..AUTHENTICATION_PLUGIN_DATA_PART1_LENGTH];
 		//remove bytes we have consumed
-		initialHandshakeMessage = initialHandshakeMessage[AUTH_PLUGIN_DATA_PART1_LENGTH..$];
+		initialHandshakeMessage = initialHandshakeMessage[AUTHENTICATION_PLUGIN_DATA_PART1_LENGTH..$];
 		//remove filler byte
 		initialHandshakeMessage = initialHandshakeMessage[1..$];
 		
@@ -129,45 +143,62 @@ private class Connection {
 		
 		uint lengthOfAuthPluginDataPart2 = totalLentgthOfAuthPluginData -8;
 		ubyte[]authPluginDataPart2=  initialHandshakeMessage[0 .. lengthOfAuthPluginDataPart2];
+		
+
 		//remove bytes we consumed
 		initialHandshakeMessage = initialHandshakeMessage[lengthOfAuthPluginDataPart2..$];
 
-		_AuthPluginName = ReadString(initialHandshakeMessage);
+		_AuthenticationPluginName = ReadString(initialHandshakeMessage); 
 
+		assert (_AuthenticationPluginName == "mysql_native_password");
+		assert (authPluginDataPart2[$-1] == '\0');
+		assert (authPluginDataPart2.length == 13);
+
+		_ServerAuthenticationPluginData.length = 20;
+		_ServerAuthenticationPluginData[0..8]=authPluginDataPart1;
+		_ServerAuthenticationPluginData[8..$]=authPluginDataPart2[0..12];
 	}
 
-	private void SendHandshakeResponseMessage()
+	private void SendClientHandshakeResponseMessage()
 	{
-		ubyte[] handshakeResponseMessage;
-		//calculate the lenth of the message here
-
-		handshakeResponseMessage.length = 100;
-		uint currentIndex =0;
-		//the first 3 bytes if for the packet size. The forth is for the packet sequence
-		currentIndex += 4;
+		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
+		ubyte[] handshakeResponseMessage = _TempBuffer;
+		
+		//first 4 bytes are for packet header that we will write at the end of this method
+		uint currentIndex =4;
 
 		uint capabilities =GenerateCapabilityFlags();
 		write!(uint,Endian.littleEndian)(handshakeResponseMessage,capabilities,currentIndex);
 		currentIndex += 4;
 
-		//maximum size for a command that we may send to the database. I don't know the criteria based on which I can specify this number, so I will set it not for 4096 until I know better way to specify this number
-		write!(uint,Endian.littleEndian)(handshakeResponseMessage,4096,currentIndex);
+		//maximum size for a command that we may send to the database.we put no resteriction from our side
+		write!(uint,Endian.littleEndian)(handshakeResponseMessage,0,currentIndex);
 		currentIndex +=4;
 
 		//use the default character set for mysql which is latin1_swedish_ci 
 		write!(ubyte,Endian.littleEndian)(handshakeResponseMessage, 0x08 ,currentIndex);
 		currentIndex ++;
 
-		//skip reserved client string
-		currentIndex += RESERVED_CLIENT_STRING_LENGTH;
+		uint endOfReservedClientStringIndex = currentIndex + RESERVED_CLIENT_STRING_LENGTH;
+		//reserved client string, all set to zero
+		for(;currentIndex < endOfReservedClientStringIndex;currentIndex++)
+		{
+			handshakeResponseMessage[currentIndex]=0;
+		}
 
 		//strings in D are not null terminated and the protocol expected a null terminated string for the username
 		string userName = _ConnectionParameters.Username ~ "\0";
 		WriteString(handshakeResponseMessage,userName,currentIndex);
 
-		string password = _ConnectionParameters.Password ~"\0";
-		WriteString(handshakeResponseMessage,password,currentIndex);
-		
+		ubyte[] authenticationResponse =  GenerateAuthenticationResponse();
+		handshakeResponseMessage[currentIndex]= cast(ubyte) authenticationResponse.length;
+		currentIndex++;
+		handshakeResponseMessage[currentIndex..currentIndex+authenticationResponse.length] = authenticationResponse;
+		currentIndex +=authenticationResponse.length;
+
+		//authentication response is null terminated
+		WriteString(handshakeResponseMessage,"\0",currentIndex);
+
 		uint x = _ServerCapabilities & CapabilityFlags.CLIENT_CONNECT_WITH_DB;
 		
 		if (_ConnectionParameters.DatabaseName.length >0 && (_ServerCapabilities & CapabilityFlags.CLIENT_CONNECT_WITH_DB))
@@ -175,11 +206,20 @@ private class Connection {
 			string databaseName = _ConnectionParameters.DatabaseName ~ "\0";
 			WriteString(handshakeResponseMessage,databaseName,currentIndex);
 		}
-		//write the packet length in the first 4 bytes. The protocol specifies that only 3 bytes are for the packet length and the forth is for the packet sequence. We will overwrite the forth byte later
-		write!(uint,Endian.littleEndian)(handshakeResponseMessage,currentIndex,0);
-		//write the packet sequeence in the forth byte
-		handshakeResponseMessage[3]=0;
 
+
+		//packet length exclues the 4 bytes packet header
+		uint packetLength = currentIndex -4;
+		/*write the packet length in the first 4 bytes (packet header). The protocol specifies that only 3 bytes are for the packet length and the forth is for the packet sequence. 
+		We will overwrite the forth byte later*/
+		write!(uint,Endian.littleEndian)(handshakeResponseMessage,packetLength,0);
+		//write the packet sequeence in the forth byte
+		handshakeResponseMessage[3]=1;
+		foreach (b;handshakeResponseMessage[0..currentIndex])
+		{
+			writeln(b);
+		}
+		 _Socket.send(handshakeResponseMessage[0..currentIndex]);
 
 	}
 	private uint GenerateCapabilityFlags()
@@ -189,8 +229,82 @@ private class Connection {
 		capabilities = capabilities | CapabilityFlags.CLIENT_LONG_PASSWORD;
 		if ( _ConnectionParameters.DatabaseName.length > 0)
 			capabilities = capabilities | CapabilityFlags.CLIENT_CONNECT_WITH_DB;
+		capabilities = capabilities | CapabilityFlags.CLIENT_SECURE_CONNECTION;
 
 		return capabilities;
+	}
+	private ubyte[] GenerateAuthenticationResponse()
+	{
+		ubyte[] hashedPassword = sha1Of(_ConnectionParameters.Password);
+		writeln(_ConnectionParameters.Password);
+		ubyte[] hashOfHashedPassword = sha1Of(hashedPassword);
+		ubyte[40] concatenatedArray;
+		concatenatedArray[0..20] = _ServerAuthenticationPluginData;
+		concatenatedArray[20..$] = hashOfHashedPassword;
+		ubyte[] concatenatedHash = sha1Of(concatenatedArray);
+		ubyte[] authenticationResponse;
+		authenticationResponse.length = 20;
+		for(int i=0;i<hashedPassword.length;i++)
+		{
+			authenticationResponse[i]=hashedPassword[i] ^ concatenatedHash[i];
+		}
+		return authenticationResponse;
+	}
+	private void HandleServerHandshakeResponse()
+	{
+		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
+
+		ubyte[] buffer = _TempBuffer;
+		_Socket.receive(buffer);
+		//packet size is found in the first three bytes
+		ubyte[4] packetSizeBytes;
+		packetSizeBytes[0..3]= buffer[0..3];
+		//add a forth byte to be able to convert to a uint
+		packetSizeBytes[3]=0;
+		uint packetSize = peek! (uint,Endian.littleEndian)(cast (ubyte[]) packetSizeBytes);
+
+		//remove packet header after reading it
+		buffer = buffer[3..$];
+		uint packetSequenceNumber = cast (uint) buffer[0];
+		buffer = buffer[1..$];
+
+		//remove useless bytes
+		buffer = buffer[0..packetSize];
+		
+		if (buffer[0]==0xff)
+		{
+			HandleErrorPacket(buffer,packetSequenceNumber);
+		}
+		if (buffer[0]==0x00)
+		{
+			HanldeOkPacket(buffer,packetSequenceNumber);
+		}
+
+	}
+	private void HandleErrorPacket(ubyte[]packet, uint packetSequenceNumber)
+	{
+		//first byte is 0xff, error indicator. Since the call was passed here we assume its value and skip it
+		packet = packet[1..$];
+
+		ushort errorCode = read!(ushort,endian.littleEndian)(packet);
+
+		//skip state marker and state until we need them
+		packet = packet[6..$];
+		string errorMessage = ReadString(packet);
+		throw new ConnectionException(errorMessage,errorCode);
+		
+	}
+	private void HanldeOkPacket(ubyte[]packet,uint packetSequenceNumber)
+	{
+		//first byte is 0x00, ok indicator. Since the call was passed here we assume its value and skip it
+		packet = packet[1..$];
+		//TODO: Create a struct to hold the OK packet results
+		ulong rowsAffected = ReadLengthEncodedInteger(packet);
+		ulong lastInserId = ReadLengthEncodedInteger(packet);
+		ushort status = read!(ushort,endian.littleEndian)(packet);
+		ushort numberOfWarnings = read!(ushort,endian.littleEndian)(packet);
+
+
 	}
 	void Disconnect()
 	{
@@ -253,7 +367,31 @@ extern class ConnectionParameters
 	}
 
 }
+extern class ConnectionException:Exception
+{
+	private uint _ErrorCode;
+	this(string message)
+	{
+		super(message);
+	}
+	this (string message,ushort errorCode)
+	{
+		super(message);
+		ErrorCode = errorCode;
+	}
+	@property
+	{
+		public uint ErrorCode()
+		{
+			return _ErrorCode;
+		}
+		public uint ErrorCode(uint errorCode)
+		{
+			return _ErrorCode = errorCode;
+		}
+	}
 
+}
 extern class DatabaseHandler
 {
 	private Connection _Connection;
