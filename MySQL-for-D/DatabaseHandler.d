@@ -6,6 +6,7 @@ import std.stdio;
 import std.digest.sha;
 import Common.Functions;
 import Common.Exceptions;
+import std.variant;
 
 /***********************************
 This is a connection that should be pooled later (didn't write pooling code yet). This is why I had to create a connection object separate from the database handler object. This pooling should be transparent to the database
@@ -42,24 +43,32 @@ private class Connection {
 		CLIENT_CONNECT_WITH_DB		=   0x00000008,
 		CLIENT_SECURE_CONNECTION	=   0x00008000 
 	}
+	private enum PreparedStatementCommands
+	{
+		COM_STMT_PREPARE = 22,
+		COM_STMT_EXECUTE = 23,
+		COM_STMT_SEND_LONG_DATA = 24,
+		COM_STMT_CLOSE = 25
 
-	public @property uint ProtocolVersion()
+	}
+
+	private @property uint ProtocolVersion()
 	{
 		return _ProtocolVersion;
 	}
 	
-	public @property ServerVersion ()
+	private @property ServerVersion ()
 	{
 		return _ServerVersion;
 	}
 	
-	public this()
+	private this()
 	{
 		_Socket = new TcpSocket();
 		_TempBuffer.length = 256;
 	}
 
-	public void Connect(ConnectionParameters parameters)
+	private void Connect(ConnectionParameters parameters)
 	{
 		_ConnectionParameters = parameters;
 		_Socket.connect(new InternetAddress(parameters.ServerAddress,parameters.Port));
@@ -218,10 +227,7 @@ private class Connection {
 		write!(uint,Endian.littleEndian)(handshakeResponseMessage,packetLength,0);
 		//write the packet sequeence in the forth byte
 		handshakeResponseMessage[3]=1;
-		foreach (b;handshakeResponseMessage[0..currentIndex])
-		{
-			writeln(b);
-		}
+		
 		 _Socket.send(handshakeResponseMessage[0..currentIndex]);
 
 	}
@@ -259,7 +265,6 @@ private class Connection {
 	private void HandleServerHandshakeResponse()
 	{
 		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
-
 		ubyte[] buffer = _TempBuffer;
 		_Socket.receive(buffer);
 		//packet size is found in the first three bytes
@@ -279,7 +284,7 @@ private class Connection {
 		
 		if (buffer[0]==0xff)
 		{
-			HandleErrorPacket(buffer,packetSequenceNumber);
+			HandleErrorPacket(buffer);
 		}
 		if (buffer[0]==0x00)
 		{
@@ -288,7 +293,7 @@ private class Connection {
 
 	}
 	
-	private void HandleErrorPacket(ubyte[]packet, uint packetSequenceNumber)
+	private void HandleErrorPacket(ubyte[]packet)
 	{
 		//first byte is 0xff, error indicator. Since the call was passed here we assume its value and skip it
 		packet = packet[1..$];
@@ -298,7 +303,7 @@ private class Connection {
 		//skip state marker and state until we need them
 		packet = packet[6..$];
 		string errorMessage = ReadString(packet);
-		throw new ConnectionException(errorMessage,errorCode);
+		throw new MySqlDException(errorMessage,errorCode);
 		
 	}
 	
@@ -312,7 +317,93 @@ private class Connection {
 		ushort status = read!(ushort,endian.littleEndian)(packet);
 		ushort numberOfWarnings = read!(ushort,endian.littleEndian)(packet);
 
+	}
+	private PreparedStatement PrepareStatement(string statement)
+	{
+		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
+		ubyte[] preparedStatementPacket = _TempBuffer;
 
+		//first 4 bytes are for packet header that we will write at the end of this method
+		uint currentIndex =4;
+
+		preparedStatementPacket[currentIndex]= PreparedStatementCommands.COM_STMT_PREPARE;
+		currentIndex++;
+		WriteString(preparedStatementPacket,statement,currentIndex);
+
+		//packet length exclues the 4 bytes packet header
+		uint packetLength = currentIndex -4;
+		/*write the packet length in the first 4 bytes (packet header). The protocol specifies that only 3 bytes are for the packet length and the forth is for the packet sequence. 
+		We will overwrite the forth byte later*/
+		write!(uint,Endian.littleEndian)(preparedStatementPacket,packetLength,0);
+		//write the packet sequeence in the forth byte
+		preparedStatementPacket[3]=0;
+
+		_Socket.send(preparedStatementPacket[0..currentIndex]);
+		return GetPrepareStatementCommandResult();
+
+	}
+	private PreparedStatement GetPrepareStatementCommandResult()
+	{
+		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
+		ubyte[] responseBuffer = _TempBuffer;
+		_Socket.receive(responseBuffer);
+
+		//packet size is found in the first three bytes
+		ubyte[4] packetSizeBytes;
+		packetSizeBytes[0..3]= responseBuffer[0..3];
+		//add a forth byte to be able to convert to a uint
+		packetSizeBytes[3]=0;
+
+		uint packetSize = peek! (uint,Endian.littleEndian)(cast (ubyte[]) packetSizeBytes);
+		//remove bytes we have already consumed
+		responseBuffer = responseBuffer[3..$];
+
+		uint packetSequenceNumber = cast (uint) responseBuffer[0];
+		//once again remove bytes we have consumed
+		responseBuffer = responseBuffer[1..$];
+
+		//remove useless bytes
+		responseBuffer = responseBuffer[0..packetSize-1];
+
+		if (responseBuffer[0]==0x00)
+		{
+			//remove status byte
+			responseBuffer = responseBuffer[1..$];
+			uint statementId = read!(uint,Endian.littleEndian)(responseBuffer);
+			ushort columnsCount = read!(ushort,Endian.littleEndian)(responseBuffer);
+			ushort parametersCount = read! (ushort,Endian.littleEndian)(responseBuffer);
+			ushort warningsCount = read !(ushort,Endian.littleEndian)(responseBuffer);
+			PreparedStatement statement =  PreparedStatement(statementId,this,parametersCount);
+			statement.ColumnsCount = columnsCount;
+			statement.WarningsCount = warningsCount;
+			return statement;
+		}
+		else if (responseBuffer[0]== 0xff)
+		{
+			HandleErrorPacket (responseBuffer);
+		}
+
+		MySqlDException ex = new MySqlDException("Undefined Response");
+		ex.ServerResponse = responseBuffer;
+		throw ex;
+
+	}
+	private void ClosePreparedStatement(uint statementId)
+	{
+		/*write the packet length in the first 4 bytes (packet header). The protocol specifies that only 3 bytes are for the packet length and the forth is for the packet sequence. 
+		We will overwrite the forth byte later*/
+		write!(uint,Endian.littleEndian)(_TempBuffer,5,0);
+		//write the packet sequeence in the forth byte
+		_TempBuffer[3]=0;
+
+		//first 4 bytes are for packet header
+		uint currentIndex =4;
+
+		_TempBuffer[currentIndex]= PreparedStatementCommands.COM_STMT_CLOSE;
+		currentIndex++;
+		write!(uint,Endian.littleEndian)(_TempBuffer,statementId,currentIndex);
+		currentIndex += 4;
+		_Socket.send(_TempBuffer[0..currentIndex]);
 	}
 	
 	void Disconnect()
@@ -377,9 +468,11 @@ extern class ConnectionParameters
 
 }
 
-extern class ConnectionException:Exception
+extern class MySqlDException:Exception
 {
 	private uint _ErrorCode;
+	private ubyte[] _ServerResponse;
+
 	this(string message)
 	{
 		super(message);
@@ -398,6 +491,14 @@ extern class ConnectionException:Exception
 		public uint ErrorCode(uint errorCode)
 		{
 			return _ErrorCode = errorCode;
+		}
+		public ubyte[] ServerResponse(ubyte[] response)
+		{
+			return _ServerResponse = response;
+		}
+		public ubyte[] ServerResponse()
+		{
+			return _ServerResponse;
 		}
 	}
 
@@ -418,7 +519,65 @@ extern class DatabaseHandler
 		ConnectionParameters parameters = new ConnectionParameters();
 		_Connection.Connect(_Parameters);
 	}
+	public PreparedStatement PrepareStatement(string statement)
+	{
+		return _Connection.PrepareStatement(statement);
+	}
 
+}
+/**********************************************************
+A struct holding data about a prepared statement and allows for its execution and closing. 
+This struct is an appliction for the RAII principle, where the statement is closed already when the object is destroyed if it was not already closed. Uncolsed statements is a commor reason for resources and memory leak
+on the server.
+*/
+extern struct PreparedStatement
+{
+	private bool _IsClosed = false;
+	private uint _Id;
+	private ushort _NumberOfParameters;
+	private ushort _ColumnsCount;
+	private ushort _WarningsCount;
+	@property
+	{
+		private ushort WarningsCount(ushort warningsCount)
+		{
+			return _WarningsCount = warningsCount;
+		}
+		public ushort WarningsCount()
+		{
+			return _WarningsCount;
+		}
+
+
+		private ushort ColumnsCount(ushort columnsCount)
+		{
+			return _ColumnsCount = columnsCount;
+		}
+		public ushort ColumnsCount()
+		{
+			return _ColumnsCount;
+		}
+	}
+
+	private Connection _Connection; 
+	//@disable this();
+	this(uint statementId,Connection connection,ushort numberOfParameters)
+	{
+		_Id = statementId;
+		_Connection = connection;
+		_NumberOfParameters = numberOfParameters;
+	}
+	~this()
+	{
+		if (!_IsClosed)
+			Close();
+	}
+	public void Close()
+	{
+		if (_IsClosed)
+			throw new MySqlDException("Statement is already closed");
+		_Connection.ClosePreparedStatement(_Id);
+	}
 }
 
 unittest{
@@ -438,5 +597,8 @@ unittest{
 	parameters.Password = configurationFile.GetValue("Password");
 	DatabaseHandler dbh = new DatabaseHandler(parameters);
 	dbh.Connect();
+	dbh.PrepareStatement("CREATE DATABASE test");
+	
 	
 }
+
