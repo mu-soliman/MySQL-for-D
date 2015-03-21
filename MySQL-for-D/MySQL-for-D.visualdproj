@@ -207,7 +207,7 @@
    <File path="Common\Exceptions.d" />
    <File path="Common\Functions.d" />
   </Folder>
-  <File path="DatabaseHandler.d" />
-  <File path="YamlFile.d" />
+  <File path="MySqlForD.d" />
+  <File path="TestingHelper.d" />
  </Folder>
 </DProject>
