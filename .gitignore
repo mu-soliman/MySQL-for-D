@@ -1,7 +1,7 @@
 *.suo
 *.pdb
 *.obj
-/MySQL-for-D/Debug
+/MySqlForD/Debug
 /Loader/Debug
 *.userprefs
 Loader/TestConfig.yaml

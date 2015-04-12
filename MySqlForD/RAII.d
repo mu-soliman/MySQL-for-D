@@ -1,18 +1,24 @@
-module MySqlForD;
+/*******************************
+this is a module for classes that control resource lifetime using the RAII pattern
+*/
+module MySqlForD.RAII;
+
+
 import std.socket;
 import std.bitmanip;
 import std.system;
-import std.stdio;
 import std.digest.sha;
-import Common.Functions;
-import Common.Exceptions;
 import std.variant;
+import MySqlForD.Functions;
+import MySqlForD.Exceptions;
+import MySqlForD.ConnectionParameters;
 
 /***********************************
 This is a connection that should be pooled later (didn't write pooling code yet). This is why I had to create an Internal connection object separate from the exposed Connection object. This pooling should be transparent to the Connection class
-user, this is why it is private class
+user, this is why it is not exported
+The reason for not creating a separate module for this class is that is is the only class that has acccess to the constructor of PreparedStatement class
 */
-private class InternalConnection {
+ class InternalConnection {
 
 	static const uint AUTHENTICATION_PLUGIN_DATA_PART1_LENGTH			=	8;
 	static const uint RESERVED_SERVER_STRING_LENGTH						=	10;
@@ -59,7 +65,7 @@ private class InternalConnection {
 		return _ProtocolVersion;
 	}
 	
-	private @property{ 
+	@property{ 
 		string ServerVersion ()
 		{
 		return _ServerVersion;
@@ -70,13 +76,13 @@ private class InternalConnection {
 		}
 	}
 	
-	private this()
+	this()
 	{
 		_Socket = new TcpSocket();
 		_TempBuffer.length = 256;
 	}
 
-	private void Connect(ConnectionParameters parameters)
+	void Connect(ConnectionParameters parameters)
 	{
 		_ConnectionParameters = parameters;
 		_Socket.connect(new InternetAddress(parameters.ServerAddress,parameters.Port));
@@ -326,7 +332,7 @@ private class InternalConnection {
 		ushort numberOfWarnings = read!(ushort,endian.littleEndian)(packet);
 
 	}
-	private PreparedStatement PrepareStatement(string statement)
+	PreparedStatement PrepareStatement(string statement)
 	{
 		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
 		ubyte[] preparedStatementPacket = _TempBuffer;
@@ -434,21 +440,54 @@ private class InternalConnection {
 		executePreparedStatementPacket[currentIndex]=1;
 		currentIndex += 4;
 
-		if (parameters != null)
+		if (parameters != null && parameters.length > 0)
 		{
 			//generate null bitmap
 			ubyte[] nullBitmap;
 			nullBitmap.length = (parameters.length+7)/8;
+			int numberOfNullParameters = 0;
+			int totalSizeOfParameters = 0;
 			foreach(index,parameter;parameters)
 			{
-				if (parameter.hasValue())
+				if (parameter.hasValue() == true)
+				{
+					totalSizeOfParameters += parameter.size;
 					continue;
+				}
+				numberOfNullParameters++;
 				uint byteIndex = cast (uint) index / 8;
 				uint bitIndex = index % 8;
 				nullBitmap[byteIndex] |=  (1 << bitIndex);
 			}
 			executePreparedStatementPacket[currentIndex..currentIndex+nullBitmap.length]=nullBitmap;
 			currentIndex += nullBitmap.length;
+			
+			//I searched online and couldn't find what this parameters does exactly, just following the documentation blindly
+			ubyte newParamsBoundFlag = 1;
+			executePreparedStatementPacket[currentIndex] = newParamsBoundFlag;
+			currentIndex++;
+
+			//insert parameters values based on types
+			ubyte[]parametersTypes;
+			parametersTypes.length = (parameters.length - numberOfNullParameters) *2;
+			ubyte[]parametersValues;
+			parametersValues.length = totalSizeOfParameters;
+			uint parameterIndexInValuesByteArray = 0;
+			foreach(index,parameter;parameters)
+			{
+				if (!parameter.hasValue())
+					continue;
+				ushort typeHexadecimalValue = GetTypeHexadecimalValue(parameter.type);
+				write!(ushort,Endian.littleEndian)(parametersTypes,typeHexadecimalValue,index*2);
+				WriteVariant(parametersValues, parameterIndexInValuesByteArray,parameter);
+
+			}
+			executePreparedStatementPacket[currentIndex..currentIndex+parametersTypes.length]=parametersTypes;
+			currentIndex+= parametersTypes.length;
+
+			executePreparedStatementPacket[currentIndex..currentIndex+parametersValues.length]=parametersValues;
+			currentIndex+=parametersValues.length;
+
 		}
 
 		//packet length exclues the 4 bytes packet header
@@ -501,6 +540,55 @@ private class InternalConnection {
 
 
 	}
+	private ushort GetTypeHexadecimalValue(TypeInfo myType)
+	{
+		if (myType == typeid(byte))
+			return 0x01;
+		if (myType == typeid(short))
+			return 0x02;
+		if (myType == typeid(long))
+			return 0x03;
+		if (myType == typeid(float))
+			return 0x04;
+		if (myType == typeid(double))
+			return 0x05;
+		if (myType == typeid(string))
+			return 0xfe;
+
+		throw new  InvalidArgumentException("Unknown type passed");
+	}
+	/********************************************************************************
+	This method was written primarily to avoid multiple array resizing. Thie method first calculates the total size of the output then generates an array with the given size and writes data to it
+	*/
+	private void GetVariantsAsBinaryArray(Variant[] variants)
+	{
+		//first calculate the total size of the variants
+
+		uint totalSize = 0 ;
+		foreach(v;variants)
+		{
+			if (v.type == typeid(byte))
+			{
+				totalSize += 1;
+			}
+			if (v.type == typeid(short))
+			{
+			}
+		}
+	}
+	private void WriteVariant(ubyte[]outputBuffer,ref uint index,Variant value)
+	{
+		if (value.type == typeid(string))
+		{
+			string stringValue = value.get!(string);
+			
+			ubyte[] stringLength = ConvertToLengthEncodedInteger(stringValue.length);
+			outputBuffer[index..index+stringLength.length]=stringLength;
+			index +=stringLength.length;
+
+			WriteString(outputBuffer,stringValue,index);
+		}
+	}
 	
 	void Disconnect()
 	{
@@ -511,129 +599,16 @@ private class InternalConnection {
 	
 
 }
-extern class ConnectionParameters
-{
-	private string _DatabaseName;
-	private ushort _Port;
-	private string _ServerAddress;
-	private string _Username;
-	private string _Password;
 
-	@property
-	{
-		public string DatabaseName()
-		{
-			return _DatabaseName;
-		}
-		public string DatabaseName(string newDatabaseName)
-		{
-			return _DatabaseName = newDatabaseName;
-		}
-		public ushort Port()
-		{
-			return _Port;
-		}
-		public ushort Port(ushort newPort)
-		{
-			return _Port = newPort;
-		}
-		public string ServerAddress()
-		{
-			return _ServerAddress;
-		}
-		public string ServerAddress (string newServerAddress)
-		{
-			return _ServerAddress = newServerAddress;
-		}
-		public string Username()
-		{
-			return _Username;
-		}
-		public string Username(string newUsername)
-		{
-			return _Username = newUsername;
-		}
-		public string Password()
-		{
-			return _Password;
-		}
-		public string Password(string newPassword)
-		{
-			return _Password = newPassword;
-		}
-	}
 
-}
 
-extern class MySqlDException:Exception
-{
-	private uint _ErrorCode;
-	private ubyte[] _ServerResponse;
 
-	this(string message)
-	{
-		super(message);
-	}
-	this (string message,ushort errorCode)
-	{
-		super(message);
-		ErrorCode = errorCode;
-	}
-	@property
-	{
-		public uint ErrorCode()
-		{
-			return _ErrorCode;
-		}
-		public uint ErrorCode(uint errorCode)
-		{
-			return _ErrorCode = errorCode;
-		}
-		public ubyte[] ServerResponse(ubyte[] response)
-		{
-			return _ServerResponse = response;
-		}
-		public ubyte[] ServerResponse()
-		{
-			return _ServerResponse;
-		}
-	}
 
-}
-
-extern class Connection
-{
-	private InternalConnection _InternalConnection;
-	private ConnectionParameters _Parameters; 
-	public this(ConnectionParameters parameters)
-	{
-		_Parameters = parameters;
-	}
-	public void Connect()
-	{
-		if (_InternalConnection is null)
-			_InternalConnection = new InternalConnection();
-		ConnectionParameters parameters = new ConnectionParameters();
-		_InternalConnection.Connect(_Parameters);
-	}
-	public PreparedStatement PrepareStatement(string statement)
-	{
-		if (!_InternalConnection || !_InternalConnection.IsConnected())
-		{
-			throw new MySqlDException ("Connection is disconnected");
-		}
-		return _InternalConnection.PrepareStatement(statement);
-	}
-	public void Disconnect()
-	{
-
-	}
-
-}
 /**********************************************************
 A struct holding data about a prepared statement and allows for its execution and closing. 
 This struct is an appliction for the RAII principle, where the statement is closed already when the object is destroyed if it was not already closed. Uncolsed statements is a commor reason for resources and memory leak
 on the server.
+It was put in this file because its constructor is private and can be accessed only by InternalConnection class
 */
 extern struct PreparedStatement
 {
@@ -683,62 +658,14 @@ extern struct PreparedStatement
 			throw new MySqlDException("Statement is already closed");
 		_Connection.ClosePreparedStatement(_Id);
 	}
-	public void Execute()
+	public void Execute(Variant[] parametersValues = null)
 	{
-		_Connection.ExecutePreparedStatement(_Id);
+		if (_NumberOfParameters !=0)
+		{
+			enforce(parametersValues!=null && parametersValues.length ==_NumberOfParameters,new MySqlDException("Number of parameters passed doesn't match statement's parameters count"));
+		}
+		_Connection.ExecutePreparedStatement(_Id,parametersValues);
 	}
 }
 
-unittest{
-	
-	import TestingHelper;
-	import std.conv;
-
-
-	YamlFile configurationFile = new YamlFile();
-	configurationFile.Open("TestConfig.yaml");
-
-	//connect to the server without database name
-	ConnectionParameters noDatabaseConnectionParameters = new ConnectionParameters();
-	noDatabaseConnectionParameters.ServerAddress = configurationFile.GetValue("ServerAddress");
-	noDatabaseConnectionParameters.Port = to!ushort (configurationFile.GetValue("Port") );
-	noDatabaseConnectionParameters.Username = configurationFile.GetValue("Username");
-	noDatabaseConnectionParameters.Password = configurationFile.GetValue("Password");
-	Connection databaseLessConnection = new Connection(noDatabaseConnectionParameters);
-	databaseLessConnection.Connect();
-	scope (exit) 
-	{
-		databaseLessConnection.Disconnect();
-	}
-	PreparedStatement createDatabaseStatement =  databaseLessConnection.PrepareStatement("CREATE DATABASE test");
-	createDatabaseStatement.Execute();
-
-	scope (exit)
-	{
-		PreparedStatement dropDatabaseStatement =  databaseLessConnection.PrepareStatement("Drop DATABASE test");
-		dropDatabaseStatement.Execute();
-	}
-	
-	//create a database connection to connect to the created database
-	ConnectionParameters databaseConnectionParameters = new ConnectionParameters();
-	databaseConnectionParameters.ServerAddress = configurationFile.GetValue("ServerAddress");
-	databaseConnectionParameters.Port = to!ushort (configurationFile.GetValue("Port") );
-	databaseConnectionParameters.Username = configurationFile.GetValue("Username");
-	databaseConnectionParameters.Password = configurationFile.GetValue("Password");
-	databaseConnectionParameters.DatabaseName = "test";
-	Connection testDatabaseConnection = new Connection(databaseConnectionParameters);
-	testDatabaseConnection.Connect();
-	
-	scope (exit)
-	{
-		testDatabaseConnection.Disconnect();
-	}
-
-	PreparedStatement createTablePreparedStatement = testDatabaseConnection.PrepareStatement("CREATE TABLE User ( Id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,firstname VARCHAR(30) NOT NULL,
-																							 lastname VARCHAR(30) NOT NULL, email NVARCHAR(50), score FLOAT );" );
-	createTablePreparedStatement.Execute();
-	
-	
-
-}
 

@@ -74,7 +74,7 @@
   <versionlevel>0</versionlevel>
   <versionids />
   <dump_source>0</dump_source>
-  <mapverbosity>0</mapverbosity>
+  <mapverbosity>2</mapverbosity>
   <createImplib>1</createImplib>
   <defaultlibname />
   <debuglibname />
@@ -202,12 +202,14 @@
   <postBuildCommand />
   <filesToClean>*.obj;*.cmd;*.build;*.json;*.dep</filesToClean>
  </Config>
- <Folder name="MySQL_for_D">
-  <Folder name="Common">
-   <File path="Common\Exceptions.d" />
-   <File path="Common\Functions.d" />
-  </Folder>
-  <File path="MySqlForD.d" />
+ <Folder name="MySqlForD">
+  <File path="Connection.d" />
+  <File path="ConnectionParameters.d" />
+  <File path="Exceptions.d" />
+  <File path="Functions.d" />
+  <File path="package.d" />
+  <File path="RAII.d" />
+  <File path="Test.d" />
   <File path="TestingHelper.d" />
  </Folder>
 </DProject>

@@ -1,9 +1,9 @@
 /***********************
 Module to contain all helper general purpose functions
 */
-module Common.Functions;
+module MySqlForD.Functions;
 
-import Common.Exceptions;
+import MySqlForD.Exceptions;
 import std.bitmanip;
 import std.system;
 
@@ -81,5 +81,23 @@ ulong ReadLengthEncodedInteger(ref ubyte[] input)
 	}
 	throw new InvalidArgumentException("Invalid input value");
 	
+}
+
+ubyte[] ConvertToLengthEncodedInteger(long value)
+{
+	ubyte[]output;
+	if (value < 251)
+	{
+		output.length = 1;
+		output[0] = cast(ubyte)value;
+	}
+	else if (value >= 251 && value < (2^16) )
+	{
+		output.length = 3;
+		output[0] = 0xfc;
+		write!(ushort,Endian.littleEndian)(output,cast(ushort)value,1);
+	}
+	return output;
+
 }
 

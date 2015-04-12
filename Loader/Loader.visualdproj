@@ -53,7 +53,7 @@
   <cccmd>$(CC) -c</cccmd>
   <ccTransOpt>1</ccTransOpt>
   <program>$(DMDInstallDir)windows\bin\dmd.exe</program>
-  <imppath>$(SolutionDir)\MySQL-for-D</imppath>
+  <imppath>$(SolutionDir)</imppath>
   <fileImppath />
   <outdir>$(ConfigurationName)</outdir>
   <objdir>$(OutDir)</objdir>
@@ -89,8 +89,8 @@
   <cv2pdbOptions />
   <objfiles />
   <linkswitches />
-  <libfiles>MySQL_for_D.lib</libfiles>
-  <libpaths>$(SolutionDir)\MySQL-for-D\Debug</libpaths>
+  <libfiles>MySqlForD.lib</libfiles>
+  <libpaths>$(SolutionDir)\MySqlForD\Debug</libpaths>
   <deffile />
   <resfile />
   <exefile>$(OutDir)\$(ProjectName).exe</exefile>
