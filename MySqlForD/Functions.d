@@ -6,6 +6,7 @@ module MySqlForD.Functions;
 import MySqlForD.Exceptions;
 import std.bitmanip;
 import std.system;
+import std.variant;
 
 /************************************
 *Read a null terminated string from an unsigned byte array. If it is not null terminated it reads till the end of the array
@@ -101,3 +102,31 @@ ubyte[] ConvertToLengthEncodedInteger(long value)
 
 }
 
+/**********************************************************************************
+Get the size of the data stored inside a variant structure
+*/
+ uint GetVariantSize(Variant value)
+{
+	if (value.type == typeid(string))
+	{
+		string stringValue = value.get!(string);
+
+		//get string length as a length encode integer
+		ubyte[] stringLength = ConvertToLengthEncodedInteger(stringValue.length);
+		
+		return cast (uint) stringValue.length + cast(uint) stringLength.length;
+	}
+	if (value.type == typeid(float))
+	{
+		return float.sizeof;
+	}
+	else if (value.type == typeid(double))
+	{
+		return double.sizeof;
+	}
+	if (value.type == typeid(int))
+	{
+		return int.sizeof;
+	}
+	throw new InvalidArgumentException("unknown variant type");
+}

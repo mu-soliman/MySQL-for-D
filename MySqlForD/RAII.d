@@ -451,7 +451,7 @@ The reason for not creating a separate module for this class is that is is the o
 			{
 				if (parameter.hasValue() == true)
 				{
-					totalSizeOfParameters += parameter.size;
+					totalSizeOfParameters += GetVariantSize(parameter);
 					continue;
 				}
 				numberOfNullParameters++;
@@ -546,7 +546,7 @@ The reason for not creating a separate module for this class is that is is the o
 			return 0x01;
 		if (myType == typeid(short))
 			return 0x02;
-		if (myType == typeid(long))
+		if (myType == typeid(int))
 			return 0x03;
 		if (myType == typeid(float))
 			return 0x04;
@@ -557,38 +557,39 @@ The reason for not creating a separate module for this class is that is is the o
 
 		throw new  InvalidArgumentException("Unknown type passed");
 	}
-	/********************************************************************************
-	This method was written primarily to avoid multiple array resizing. Thie method first calculates the total size of the output then generates an array with the given size and writes data to it
-	*/
-	private void GetVariantsAsBinaryArray(Variant[] variants)
-	{
-		//first calculate the total size of the variants
-
-		uint totalSize = 0 ;
-		foreach(v;variants)
-		{
-			if (v.type == typeid(byte))
-			{
-				totalSize += 1;
-			}
-			if (v.type == typeid(short))
-			{
-			}
-		}
-	}
+	
 	private void WriteVariant(ubyte[]outputBuffer,ref uint index,Variant value)
 	{
 		if (value.type == typeid(string))
 		{
 			string stringValue = value.get!(string);
-			
+			//write string length as a length encode integer
 			ubyte[] stringLength = ConvertToLengthEncodedInteger(stringValue.length);
 			outputBuffer[index..index+stringLength.length]=stringLength;
 			index +=stringLength.length;
 
 			WriteString(outputBuffer,stringValue,index);
 		}
+		else if (value.type == typeid(float))
+		{
+			float floatValue = value.get!(float);
+			write!(float,Endian.littleEndian)(outputBuffer,floatValue,index);
+			index += float.sizeof;
+		}
+		else if (value.type == typeid(double))
+		{
+			double doubleValue = value.get!(double);
+			write!(double,Endian.littleEndian)(outputBuffer,doubleValue,index);
+			index += double.sizeof;
+		}
+		else if (value.type == typeid(int))
+		{
+			int intValue = value.get!(int);
+			write!(int,Endian.littleEndian)(outputBuffer,intValue,index);
+			index += int.sizeof;
+		}
 	}
+	
 	
 	void Disconnect()
 	{
@@ -640,7 +641,7 @@ extern struct PreparedStatement
 	}
 
 	private InternalConnection _Connection; 
-	//@disable this();
+	
 	this(uint statementId,InternalConnection connection,ushort numberOfParameters)
 	{
 		_Id = statementId;

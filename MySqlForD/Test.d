@@ -47,18 +47,19 @@ unittest{
 		testDatabaseConnection.Disconnect();
 	}
 
-	PreparedStatement createTablePreparedStatement = testDatabaseConnection.PrepareStatement("CREATE TABLE User ( Id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,firstname VARCHAR(30) NOT NULL,
+	PreparedStatement createTablePreparedStatement = testDatabaseConnection.PrepareStatement("CREATE TABLE User ( Id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,firstname VARCHAR(30) NOT NULL,
 																							 lastname VARCHAR(30) NOT NULL, email NVARCHAR(50), score FLOAT );" );
 	createTablePreparedStatement.Execute();
-	PreparedStatement insertStatement = testDatabaseConnection.PrepareStatement("insert into User (firstname,lastname)values(?,?)");
+	PreparedStatement insertStatement = testDatabaseConnection.PrepareStatement("insert into User (Id,firstname,lastname,score) values (?,?,?,?)");
 	
 	Variant[] parameters;
-	parameters.length =2;
-	parameters[0] = "Muhammad";
-	parameters[1]="Adel";
-	
-	insertStatement.Execute(parameters);
+	parameters.length = 4;
+	parameters[0] = 56;
+	parameters[1] = "Muhammad";
+	parameters[2] = "Adel";
+	parameters[3] = -5.674f;
 
+	insertStatement.Execute(parameters);
 
 
 }
