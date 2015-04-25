@@ -15,7 +15,7 @@ import std.variant;
 
 * Throws InvalidArgumentException if input contained no null string
 */
-string ReadString(ref ubyte[] input)
+pure string ReadString(ref ubyte[] input)
 {
 	ulong indexOfLastCharacter = input.length -1;
 	foreach(i, b; input)
@@ -26,10 +26,10 @@ string ReadString(ref ubyte[] input)
 			break;
 		}
 	}
-	
+	//read the string ignoring the null character at the end 
 	char[] characters;
-	characters.length= indexOfLastCharacter+1;
-	characters[] = cast (char[]) input[0..indexOfLastCharacter+1];
+	characters.length= indexOfLastCharacter;
+	characters[] = cast (char[]) input[0..indexOfLastCharacter];
 	
 	//remove consumed characters from input array 
 	input = input[indexOfLastCharacter+1 .. $];

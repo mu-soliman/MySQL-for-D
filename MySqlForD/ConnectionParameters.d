@@ -11,43 +11,43 @@ extern class ConnectionParameters
 
 	@property
 	{
-		public string DatabaseName()
+		pure public string DatabaseName()
 		{
 			return _DatabaseName;
 		}
-		public string DatabaseName(string newDatabaseName)
+		pure public string DatabaseName(string newDatabaseName)
 		{
 			return _DatabaseName = newDatabaseName;
 		}
-		public ushort Port()
+		pure public ushort Port()
 		{
 			return _Port;
 		}
-		public ushort Port(ushort newPort)
+		pure public ushort Port(ushort newPort)
 		{
 			return _Port = newPort;
 		}
-		public string ServerAddress()
+		pure public string ServerAddress()
 		{
 			return _ServerAddress;
 		}
-		public string ServerAddress (string newServerAddress)
+		pure public string ServerAddress (string newServerAddress)
 		{
 			return _ServerAddress = newServerAddress;
 		}
-		public string Username()
+		pure public string Username()
 		{
 			return _Username;
 		}
-		public string Username(string newUsername)
+		pure public string Username(string newUsername)
 		{
 			return _Username = newUsername;
 		}
-		public string Password()
+		pure public string Password()
 		{
 			return _Password;
 		}
-		public string Password(string newPassword)
+		pure public string Password(string newPassword)
 		{
 			return _Password = newPassword;
 		}

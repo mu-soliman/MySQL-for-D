@@ -1,0 +1,205 @@
+module MySqlForD.PreparedStatementPacketHandler;
+
+import std.bitmanip;
+import std.system;
+import std.variant;
+import std.datetime;
+import std.stdio;
+
+import MySqlForD.Exceptions;
+
+import MySqlForD.Functions;
+
+class PreparedStatementPacketHandler
+{
+	private enum PreparedStatementCommands
+	{
+		COM_STMT_PREPARE = 22,
+			COM_STMT_EXECUTE = 23,
+			COM_STMT_SEND_LONG_DATA = 24,
+			COM_STMT_CLOSE = 25
+
+	}
+
+	public uint GeneratePreparedStatementExecutePacket(ref ubyte[] buffer,uint statementId,Variant[] parameters = null)
+	{
+		
+		uint currentIndex = 0;
+		buffer[currentIndex] = PreparedStatementCommands.COM_STMT_EXECUTE;
+		currentIndex++;
+
+		write!(uint,Endian.littleEndian)(buffer,statementId,currentIndex);
+		currentIndex += 4;
+
+		//no flags to set for now
+		buffer[currentIndex]=0;
+		currentIndex++;
+
+		//iteration count is always 1. it is stored in 4 bytes
+		buffer[currentIndex]=1;
+		currentIndex += 4;
+
+		if (parameters != null && parameters.length > 0)
+		{
+			//generate null bitmap
+			ubyte[] nullBitmap;
+			nullBitmap.length = (parameters.length+7)/8;
+			int numberOfNullParameters = 0;
+			int totalSizeOfParameters = 0;
+			foreach(index,parameter;parameters)
+			{
+				if (parameter.hasValue() == true)
+				{
+					totalSizeOfParameters += GetVariantSize(parameter);
+					continue;
+				}
+				numberOfNullParameters++;
+				uint byteIndex = cast (uint) index / 8;
+				uint bitIndex = index % 8;
+				nullBitmap[byteIndex] |=  (1 << bitIndex);
+			}
+			buffer[currentIndex..currentIndex+nullBitmap.length]=nullBitmap;
+			currentIndex += nullBitmap.length;
+
+			//I searched online and couldn't find what this parameters does exactly, just following the documentation blindly
+			ubyte newParamsBoundFlag = 1;
+			buffer[currentIndex] = newParamsBoundFlag;
+			currentIndex++;
+
+			//insert parameters values based on types
+			ubyte[]parametersTypes;
+			parametersTypes.length = (parameters.length - numberOfNullParameters) *2;
+			ubyte[]parametersValues;
+			parametersValues.length = totalSizeOfParameters;
+			uint parameterIndexInValuesByteArray = 0;
+			foreach(index,parameter;parameters)
+			{
+				if (!parameter.hasValue())
+					continue;
+				ushort typeHexadecimalValue = GetTypeHexadecimalValue(parameter.type);
+				write!(ushort,Endian.littleEndian)(parametersTypes,typeHexadecimalValue,index*2);
+				WriteVariant(parametersValues, parameterIndexInValuesByteArray,parameter);
+
+			}
+			buffer[currentIndex..currentIndex+parametersTypes.length]=parametersTypes;
+			currentIndex+= parametersTypes.length;
+
+			buffer[currentIndex..currentIndex+parametersValues.length]=parametersValues;
+			currentIndex+=parametersValues.length;
+
+		}		
+		return currentIndex;
+	}
+
+	private  ushort  GetTypeHexadecimalValue(TypeInfo myType) 
+	{
+		if (myType == typeid(byte))
+			return 0x01;
+		if (myType == typeid(short))
+			return 0x02;
+		if (myType == typeid(int))
+			return 0x03;
+		if (myType == typeid(float))
+			return 0x04;
+		if (myType == typeid(double))
+			return 0x05;
+		if (myType == typeid(DateTime))
+			return 0x07;
+		if (myType == typeid(long))
+			return 0x08;
+		if (myType == typeid(string))
+			return 0xfe;
+
+		throw new  InvalidArgumentException("Unknown type passed");
+	}
+
+	private void WriteVariant(ubyte[]outputBuffer,ref uint index,Variant value)
+	{
+		if (value.type == typeid(byte))
+		{
+			byte byteValue = value.get!(byte);
+			write!(byte,Endian.littleEndian)(outputBuffer,byteValue,index);
+			index += byte.sizeof;
+			return;
+		}
+
+		if (value.type == typeid(short))
+		{
+			short shortValue = value.get!(short);
+			write!(short,Endian.littleEndian)(outputBuffer,shortValue,index);
+			index += short.sizeof;
+			return;
+		}
+
+		if (value.type == typeid(int))
+		{
+			int intValue = value.get!(int);
+			write!(int,Endian.littleEndian)(outputBuffer,intValue,index);
+			index += int.sizeof;
+			return;
+		}
+
+		if (value.type == typeid(float))
+		{
+			float floatValue = value.get!(float);
+			write!(float,Endian.littleEndian)(outputBuffer,floatValue,index);
+			index += float.sizeof;
+			return;
+		}
+
+		if (value.type == typeid(double))
+		{
+			double doubleValue = value.get!(double);
+			write!(double,Endian.littleEndian)(outputBuffer,doubleValue,index);
+			index += double.sizeof;
+			return;
+		}
+
+		if (value.type == typeid(DateTime))
+		{
+			DateTime dateTimeValue = value.get!(DateTime);
+			//write the length of the date time. Datetime doesn't has milliseconds property, so we can only send the year,month,day, hours,minutes,seconds
+			write!(ubyte,Endian.littleEndian)(outputBuffer,7,index);
+			index += ubyte.sizeof;
+
+			write!(ushort,Endian.littleEndian)(outputBuffer,dateTimeValue.year,index);
+			index += ushort.sizeof;
+
+			write!(ubyte,Endian.littleEndian)(outputBuffer,dateTimeValue.month,index);
+			index += ubyte.sizeof;
+
+			write!(ubyte,Endian.littleEndian)(outputBuffer,dateTimeValue.day,index);
+			index += ubyte.sizeof;
+
+			write!(ubyte,Endian.littleEndian)(outputBuffer,dateTimeValue.hour,index);
+			index += ubyte.sizeof;
+
+			write!(ubyte,Endian.littleEndian)(outputBuffer,dateTimeValue.minute,index);
+			index += ubyte.sizeof;
+
+			write!(ubyte,Endian.littleEndian)(outputBuffer,dateTimeValue.second,index);
+			index += ubyte.sizeof;
+
+		}
+
+		if (value.type == typeid(long))
+		{
+			long longValue = value.get!(long);
+			write!(long,Endian.littleEndian)(outputBuffer,longValue,index);
+			index += long.sizeof;
+			return;
+		}
+
+		else if (value.type == typeid(string))
+		{
+			string stringValue = value.get!(string);
+			//write string length as a length encode integer
+			ubyte[] stringLength = ConvertToLengthEncodedInteger(stringValue.length);
+			outputBuffer[index..index+stringLength.length]=stringLength;
+			index +=stringLength.length;
+			WriteString(outputBuffer,stringValue,index);
+			return;
+		}
+	}
+
+}

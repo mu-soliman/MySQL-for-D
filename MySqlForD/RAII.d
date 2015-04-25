@@ -9,9 +9,14 @@ import std.bitmanip;
 import std.system;
 import std.digest.sha;
 import std.variant;
+import std.datetime;
+import std.stdio;
+
 import MySqlForD.Functions;
 import MySqlForD.Exceptions;
 import MySqlForD.ConnectionParameters;
+import MySqlForD.CommandResult;
+import MySqlForD.PreparedStatementPacketHandler;
 
 /***********************************
 This is a connection that should be pooled later (didn't write pooling code yet). This is why I had to create an Internal connection object separate from the exposed Connection object. This pooling should be transparent to the Connection class
@@ -23,8 +28,8 @@ The reason for not creating a separate module for this class is that is is the o
 	static const uint AUTHENTICATION_PLUGIN_DATA_PART1_LENGTH			=	8;
 	static const uint RESERVED_SERVER_STRING_LENGTH						=	10;
 	static const uint SERVER_STATUS_LENGTH								=	2;
-
 	static const uint RESERVED_CLIENT_STRING_LENGTH						=	23;
+	static const uint PACKT_HEADER_LENGTH								=	4;
 
 	private ConnectionParameters	_ConnectionParameters;
 	private uint					_ProtocolVersion;
@@ -37,6 +42,7 @@ The reason for not creating a separate module for this class is that is is the o
 	private ubyte[2]				_ServerStatus;
 	private ubyte[]					_ServerAuthenticationPluginData;
 	private bool					_IsConnected  = false;
+	private PreparedStatementPacketHandler	_PreparedStatementPacketHandler;
 
 	/*********************************************************************
 	Buffer used for differnt tasks to avoid successive allocation and deallocation
@@ -64,11 +70,13 @@ The reason for not creating a separate module for this class is that is is the o
 	{
 		return _ProtocolVersion;
 	}
+
+	
 	
 	@property{ 
 		string ServerVersion ()
 		{
-		return _ServerVersion;
+			return _ServerVersion;
 		}
 		bool IsConnected()
 		{
@@ -76,10 +84,20 @@ The reason for not creating a separate module for this class is that is is the o
 		}
 	}
 	
+	private @property
+	{ 
+		PreparedStatementPacketHandler PreparedStatementHandler()
+		{
+			if (_PreparedStatementPacketHandler is null)
+				_PreparedStatementPacketHandler = new PreparedStatementPacketHandler();
+			return _PreparedStatementPacketHandler;
+		}
+	}
+	
 	this()
 	{
 		_Socket = new TcpSocket();
-		_TempBuffer.length = 256;
+		_TempBuffer.length = 1024*1024;
 	}
 
 	void Connect(ConnectionParameters parameters)
@@ -91,23 +109,11 @@ The reason for not creating a separate module for this class is that is is the o
 		ubyte[] buffer = _TempBuffer;
 		
 		_Socket.receive(buffer);
-
-		//packet size is found in the first three bytes
-		ubyte[4] packetSizeBytes;
-		packetSizeBytes[0..3]= buffer[0..3];
-		//add a forth byte to be able to convert to a uint
-		packetSizeBytes[3]=0;
+		PacketHeader header = ExtractPacketHeader (buffer); 
 		
-		uint packetSize = peek! (uint,Endian.littleEndian)(cast (ubyte[]) packetSizeBytes);
-		//remove bytes we have already consumed
-		buffer = buffer[3..$];
-		
-		uint packetSequenceNumber = cast (uint) buffer[0];
-		//once again remove bytes we have consumed
-		buffer = buffer[1..$];
 
 		//remove useless bytes
-		buffer = buffer[0..packetSize-1];
+		buffer = buffer[0..header.PacketLength];
 		
 
 		ushort initial_byte = buffer[0];
@@ -187,11 +193,10 @@ The reason for not creating a separate module for this class is that is is the o
 
 	private void SendClientHandshakeResponseMessage()
 	{
-		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
-		ubyte[] handshakeResponseMessage = _TempBuffer;
+		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected. The first 4 bytes are for packet header that we will write at the end of this method
+		ubyte[] handshakeResponseMessage = _TempBuffer[4..$];
 		
-		//first 4 bytes are for packet header that we will write at the end of this method
-		uint currentIndex =4;
+		uint currentIndex =0;
 
 		uint capabilities =GenerateCapabilityFlags();
 		write!(uint,Endian.littleEndian)(handshakeResponseMessage,capabilities,currentIndex);
@@ -229,15 +234,9 @@ The reason for not creating a separate module for this class is that is is the o
 			WriteString(handshakeResponseMessage,databaseName,currentIndex);
 		}
 		
-		//packet length exclues the 4 bytes packet header
-		uint packetLength = currentIndex -4;
-		/*write the packet length in the first 4 bytes (packet header). The protocol specifies that only 3 bytes are for the packet length and the forth is for the packet sequence. 
-		We will overwrite the forth byte later*/
-		write!(uint,Endian.littleEndian)(handshakeResponseMessage,packetLength,0);
-		//write the packet sequeence in the forth byte
-		handshakeResponseMessage[3]=1;
+		AddPacketHeader(currentIndex,1);
 		
-		 _Socket.send(handshakeResponseMessage[0..currentIndex]);
+		 _Socket.send(_TempBuffer[0..currentIndex + PACKT_HEADER_LENGTH]);
 
 	}
 	
@@ -255,7 +254,7 @@ The reason for not creating a separate module for this class is that is is the o
 		return capabilities;
 	}
 	
-	private ubyte[] GenerateAuthenticationResponse()
+	private pure ubyte[] GenerateAuthenticationResponse()
 	{
 		ubyte[] hashedPassword = sha1Of(_ConnectionParameters.Password);
 		ubyte[] hashOfHashedPassword = sha1Of(hashedPassword);
@@ -294,12 +293,13 @@ The reason for not creating a separate module for this class is that is is the o
 		
 		if (buffer[0]==0xff)
 		{
-			HandleErrorPacket(buffer);
+			ParseErrorPacket(buffer);
 		}
 		if (buffer[0]==0x00)
 		{
 			_IsConnected = true;
-			return HanldeOkPacket(buffer,packetSequenceNumber);
+			GetOkPacketResponse(buffer);
+			return;
 		}
 		MySqlDException ex = new MySqlDException("Unknown server response");
 		ex.ServerResponse = buffer;
@@ -307,7 +307,7 @@ The reason for not creating a separate module for this class is that is is the o
 
 	}
 	
-	private void HandleErrorPacket(ubyte[]packet)
+	private void ParseErrorPacket(ubyte[]packet)
 	{
 		//first byte is 0xff, error indicator. Since the call was passed here we assume its value and skip it
 		packet = packet[1..$];
@@ -321,15 +321,19 @@ The reason for not creating a separate module for this class is that is is the o
 		
 	}
 	
-	private void HanldeOkPacket(ubyte[]packet,uint packetSequenceNumber)
+	private CommandResult GetOkPacketResponse(ubyte[]packet)
 	{
 		//first byte is 0x00, ok indicator. Since the call was passed here we assume its value and skip it
 		packet = packet[1..$];
-		//TODO: Create a struct to hold the OK packet results
-		ulong rowsAffected = ReadLengthEncodedInteger(packet);
-		ulong lastInserId = ReadLengthEncodedInteger(packet);
+		CommandResult result = new CommandResult();
+		result.NumberOfRowsAffected = ReadLengthEncodedInteger(packet);
+		result.LastInsertedId = ReadLengthEncodedInteger(packet);
+
+		//TODO: put a meaningful status description in command result class
 		ushort status = read!(ushort,endian.littleEndian)(packet);
-		ushort numberOfWarnings = read!(ushort,endian.littleEndian)(packet);
+		
+		result.NumberOfWarnings = read!(ushort,endian.littleEndian)(packet);
+		return result;
 
 	}
 	PreparedStatement PrepareStatement(string statement)
@@ -353,10 +357,10 @@ The reason for not creating a separate module for this class is that is is the o
 		preparedStatementPacket[3]=0;
 
 		_Socket.send(preparedStatementPacket[0..currentIndex]);
-		return GetPrepareStatementCommandResult();
+		return GetComStmtPrepareResponse();
 
 	}
-	private PreparedStatement GetPrepareStatementCommandResult()
+	private PreparedStatement GetComStmtPrepareResponse()
 	{
 		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
 		ubyte[] responseBuffer = _TempBuffer;
@@ -394,10 +398,10 @@ The reason for not creating a separate module for this class is that is is the o
 		}
 		else if (responseBuffer[0]== 0xff)
 		{
-			HandleErrorPacket (responseBuffer);
+			ParseErrorPacket (responseBuffer);
 		}
 
-		MySqlDException ex = new MySqlDException("Undefined Response");
+		MySqlDException ex = new MySqlDException("Unsupported Response");
 		ex.ServerResponse = responseBuffer;
 		throw ex;
 
@@ -419,176 +423,81 @@ The reason for not creating a separate module for this class is that is is the o
 		currentIndex += 4;
 		_Socket.send(_TempBuffer[0..currentIndex]);
 	}
-	private Variant[][]ExecutePreparedStatement(uint statementId,Variant[] parameters = null)
+	private CommandResult ExecuteCommandPreparedStatement(uint statementId,Variant[] parameters = null)
 	{
-		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
-		ubyte[] executePreparedStatementPacket = _TempBuffer;
-
-		//first 4 bytes are for packet header that we will write at the end of this method
-		uint currentIndex = 4;
-		executePreparedStatementPacket[currentIndex] = PreparedStatementCommands.COM_STMT_EXECUTE;
-		currentIndex++;
-
-		write!(uint,Endian.littleEndian)(executePreparedStatementPacket,statementId,currentIndex);
-		currentIndex += 4;
-
-		//no flags to set for now
-		executePreparedStatementPacket[currentIndex]=0;
-		currentIndex++;
-		
-		//iteration count is always 1. it is stored in 4 bytes
-		executePreparedStatementPacket[currentIndex]=1;
-		currentIndex += 4;
-
-		if (parameters != null && parameters.length > 0)
-		{
-			//generate null bitmap
-			ubyte[] nullBitmap;
-			nullBitmap.length = (parameters.length+7)/8;
-			int numberOfNullParameters = 0;
-			int totalSizeOfParameters = 0;
-			foreach(index,parameter;parameters)
-			{
-				if (parameter.hasValue() == true)
-				{
-					totalSizeOfParameters += GetVariantSize(parameter);
-					continue;
-				}
-				numberOfNullParameters++;
-				uint byteIndex = cast (uint) index / 8;
-				uint bitIndex = index % 8;
-				nullBitmap[byteIndex] |=  (1 << bitIndex);
-			}
-			executePreparedStatementPacket[currentIndex..currentIndex+nullBitmap.length]=nullBitmap;
-			currentIndex += nullBitmap.length;
-			
-			//I searched online and couldn't find what this parameters does exactly, just following the documentation blindly
-			ubyte newParamsBoundFlag = 1;
-			executePreparedStatementPacket[currentIndex] = newParamsBoundFlag;
-			currentIndex++;
-
-			//insert parameters values based on types
-			ubyte[]parametersTypes;
-			parametersTypes.length = (parameters.length - numberOfNullParameters) *2;
-			ubyte[]parametersValues;
-			parametersValues.length = totalSizeOfParameters;
-			uint parameterIndexInValuesByteArray = 0;
-			foreach(index,parameter;parameters)
-			{
-				if (!parameter.hasValue())
-					continue;
-				ushort typeHexadecimalValue = GetTypeHexadecimalValue(parameter.type);
-				write!(ushort,Endian.littleEndian)(parametersTypes,typeHexadecimalValue,index*2);
-				WriteVariant(parametersValues, parameterIndexInValuesByteArray,parameter);
-
-			}
-			executePreparedStatementPacket[currentIndex..currentIndex+parametersTypes.length]=parametersTypes;
-			currentIndex+= parametersTypes.length;
-
-			executePreparedStatementPacket[currentIndex..currentIndex+parametersValues.length]=parametersValues;
-			currentIndex+=parametersValues.length;
-
-		}
-
-		//packet length exclues the 4 bytes packet header
-		uint packetLength = currentIndex -4;
-		/*write the packet length in the first 4 bytes (packet header). The protocol specifies that only 3 bytes are for the packet length and the forth is for the packet sequence. 
-		We will overwrite the forth byte later*/
-		write!(uint,Endian.littleEndian)(executePreparedStatementPacket,packetLength,0);
-		//write the packet sequeence in the forth byte
-		executePreparedStatementPacket[3]=0;
-
-		_Socket.send(executePreparedStatementPacket[0..currentIndex]);
-
-
-		HandlePreparedStatementExecutionResponse();
-
-		return null;
+		ExecutePreparedStatement(statementId,parameters);
+		return GetCommandComStmtExecuteResponse();
 	}
-	void HandlePreparedStatementExecutionResponse()
+	private void ExecutePreparedStatement(uint statementId,Variant[] parameters = null)
 	{
-		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
-		ubyte[] responseBuffer = _TempBuffer;
-		_Socket.receive(responseBuffer);
+		//first 4 bytes are for packet header that we will write at the end of this method
+		ubyte[] preparedStatementPacket = _TempBuffer[4..$];
 
+		uint packetSize = PreparedStatementHandler.GeneratePreparedStatementExecutePacket(preparedStatementPacket,statementId,parameters);
+		AddPacketHeader(packetSize,0);
+
+		_Socket.send(_TempBuffer[0..packetSize + PACKT_HEADER_LENGTH]);
+	}
+
+	/***************************************************************
+	Add packet header to the _TempBuffer byte array
+	*/
+	private void AddPacketHeader(uint packetSize,uint packetSequence)
+	{
+		write!(uint,Endian.littleEndian)(_TempBuffer,packetSize,0);
+		//write the packet sequence in the forth byte
+		_TempBuffer[3]=0;
+	}
+
+
+	/********************************************************************
+	Extract packet info from the packet and remove the packet header bytes from the input byte array
+	*/
+	private PacketHeader ExtractPacketHeader(ref ubyte[] buffer)
+	{
 		//packet size is found in the first three bytes
 		ubyte[4] packetSizeBytes;
-		packetSizeBytes[0..3]= responseBuffer[0..3];
+		packetSizeBytes[0..3]= buffer[0..3];
 		//add a forth byte to be able to convert to a uint
 		packetSizeBytes[3]=0;
 
 		uint packetSize = peek! (uint,Endian.littleEndian)(cast (ubyte[]) packetSizeBytes);
 		//remove bytes we have already consumed
-		responseBuffer = responseBuffer[3..$];
+		buffer = buffer[3..$];
 
-		uint packetSequenceNumber = cast (uint) responseBuffer[0];
+		ubyte packetSequenceNumber =  buffer[0];
 		//once again remove bytes we have consumed
-		responseBuffer = responseBuffer[1..$];
+		buffer = buffer[1..$];
+
+		PacketHeader header = new PacketHeader(packetSize,packetSequenceNumber);
+		return header;
+	}
+
+
+	CommandResult GetCommandComStmtExecuteResponse()
+	{
+		
+		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
+		ubyte[] responseBuffer = _TempBuffer;
+		_Socket.receive(responseBuffer);
+		PacketHeader header = ExtractPacketHeader(responseBuffer);
+
 
 		//remove useless bytes
-		responseBuffer = responseBuffer[0..packetSize-1];
+		responseBuffer = responseBuffer[0..header.PacketLength];
 
 		if (responseBuffer[0]==0x00)
 		{
-		
+			return GetOkPacketResponse(responseBuffer);
 		}
 		else if (responseBuffer[0]== 0xff)
 		{
-			HandleErrorPacket (responseBuffer);
+			ParseErrorPacket (responseBuffer);
 		}
+		throw new MySqlDException("Prepared statement executed is not  a command statement");
 
-
-
-	}
-	private ushort GetTypeHexadecimalValue(TypeInfo myType)
-	{
-		if (myType == typeid(byte))
-			return 0x01;
-		if (myType == typeid(short))
-			return 0x02;
-		if (myType == typeid(int))
-			return 0x03;
-		if (myType == typeid(float))
-			return 0x04;
-		if (myType == typeid(double))
-			return 0x05;
-		if (myType == typeid(string))
-			return 0xfe;
-
-		throw new  InvalidArgumentException("Unknown type passed");
 	}
 	
-	private void WriteVariant(ubyte[]outputBuffer,ref uint index,Variant value)
-	{
-		if (value.type == typeid(string))
-		{
-			string stringValue = value.get!(string);
-			//write string length as a length encode integer
-			ubyte[] stringLength = ConvertToLengthEncodedInteger(stringValue.length);
-			outputBuffer[index..index+stringLength.length]=stringLength;
-			index +=stringLength.length;
-
-			WriteString(outputBuffer,stringValue,index);
-		}
-		else if (value.type == typeid(float))
-		{
-			float floatValue = value.get!(float);
-			write!(float,Endian.littleEndian)(outputBuffer,floatValue,index);
-			index += float.sizeof;
-		}
-		else if (value.type == typeid(double))
-		{
-			double doubleValue = value.get!(double);
-			write!(double,Endian.littleEndian)(outputBuffer,doubleValue,index);
-			index += double.sizeof;
-		}
-		else if (value.type == typeid(int))
-		{
-			int intValue = value.get!(int);
-			write!(int,Endian.littleEndian)(outputBuffer,intValue,index);
-			index += int.sizeof;
-		}
-	}
 	
 	
 	void Disconnect()
@@ -658,14 +567,32 @@ extern struct PreparedStatement
 		if (_IsClosed)
 			throw new MySqlDException("Statement is already closed");
 		_Connection.ClosePreparedStatement(_Id);
+		_IsClosed = true;
 	}
-	public void Execute(Variant[] parametersValues = null)
+	public CommandResult ExecuteCommand(Variant[] parametersValues = null)
 	{
 		if (_NumberOfParameters !=0)
 		{
 			enforce(parametersValues!=null && parametersValues.length ==_NumberOfParameters,new MySqlDException("Number of parameters passed doesn't match statement's parameters count"));
 		}
-		_Connection.ExecutePreparedStatement(_Id,parametersValues);
+		return _Connection.ExecuteCommandPreparedStatement(_Id,parametersValues);
+	}
+
+}
+
+
+private class PacketHeader
+{
+	public uint PacketLength;
+	public ubyte PacketSequence;
+	this()
+	{
+
+	}
+	this(uint packetLength,ubyte packetSequence)
+	{
+		PacketLength = packetLength;
+		PacketSequence = packetSequence;
 	}
 }
 

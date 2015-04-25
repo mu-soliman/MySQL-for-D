@@ -203,11 +203,13 @@
   <filesToClean>*.obj;*.cmd;*.build;*.json;*.dep</filesToClean>
  </Config>
  <Folder name="MySqlForD">
+  <File path="CommandResult.d" />
   <File path="Connection.d" />
   <File path="ConnectionParameters.d" />
   <File path="Exceptions.d" />
   <File path="Functions.d" />
   <File path="package.d" />
+  <File path="PreparedStatementPacketHandler.d" />
   <File path="RAII.d" />
   <File path="Test.d" />
   <File path="TestingHelper.d" />

@@ -19,17 +19,18 @@ unittest{
 	noDatabaseConnectionParameters.Password = configurationFile.GetValue("Password");
 	Connection databaseLessConnection = new Connection(noDatabaseConnectionParameters);
 	databaseLessConnection.Connect();
+
 	scope (exit) 
 	{
 		databaseLessConnection.Disconnect();
 	}
 	PreparedStatement createDatabaseStatement =  databaseLessConnection.PrepareStatement("CREATE DATABASE test");
-	createDatabaseStatement.Execute();
+	createDatabaseStatement.ExecuteCommand();
 
 	scope (exit)
 	{
 		PreparedStatement dropDatabaseStatement =  databaseLessConnection.PrepareStatement("Drop DATABASE test");
-		dropDatabaseStatement.Execute();
+		dropDatabaseStatement.ExecuteCommand();
 	}
 
 	//create a database connection to connect to the created database
@@ -49,7 +50,7 @@ unittest{
 
 	PreparedStatement createTablePreparedStatement = testDatabaseConnection.PrepareStatement("CREATE TABLE User ( Id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,firstname VARCHAR(30) NOT NULL,
 																							 lastname VARCHAR(30) NOT NULL, email NVARCHAR(50), score FLOAT );" );
-	createTablePreparedStatement.Execute();
+	createTablePreparedStatement.ExecuteCommand();
 	PreparedStatement insertStatement = testDatabaseConnection.PrepareStatement("insert into User (Id,firstname,lastname,score) values (?,?,?,?)");
 	
 	Variant[] parameters;
@@ -59,7 +60,9 @@ unittest{
 	parameters[2] = "Adel";
 	parameters[3] = -5.674f;
 
-	insertStatement.Execute(parameters);
+	insertStatement.ExecuteCommand(parameters);
+	insertStatement.Close();
+	
 
 
 }
