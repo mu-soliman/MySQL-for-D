@@ -193,8 +193,9 @@ The reason for not creating a separate module for this class is that is is the o
 
 	private void SendClientHandshakeResponseMessage()
 	{
-		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected. The first 4 bytes are for packet header that we will write at the end of this method
+		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected. first 4 bytes are for packet header that we will write at the end of this method
 		ubyte[] handshakeResponseMessage = _TempBuffer[4..$];
+
 		
 		uint currentIndex =0;
 
@@ -227,16 +228,15 @@ The reason for not creating a separate module for this class is that is is the o
 		handshakeResponseMessage[currentIndex..currentIndex+authenticationResponse.length] = authenticationResponse;
 		currentIndex +=authenticationResponse.length;
 
-		
+
 		if ( capabilities & CapabilityFlags.CLIENT_CONNECT_WITH_DB)
 		{
 			string databaseName = _ConnectionParameters.DatabaseName ~'\0' ;
 			WriteString(handshakeResponseMessage,databaseName,currentIndex);
 		}
-		
+
 		AddPacketHeader(currentIndex,1);
-		
-		 _Socket.send(_TempBuffer[0..currentIndex + PACKT_HEADER_LENGTH]);
+		_Socket.send(_TempBuffer[0..currentIndex + PACKT_HEADER_LENGTH]);
 
 	}
 	
@@ -338,25 +338,13 @@ The reason for not creating a separate module for this class is that is is the o
 	}
 	PreparedStatement PrepareStatement(string statement)
 	{
-		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
-		ubyte[] preparedStatementPacket = _TempBuffer;
+		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected. first 4 bytes are for packet header that we will write at the end of this method
+		ubyte[] preparedStatementPacket = _TempBuffer[4..$];
 
-		//first 4 bytes are for packet header that we will write at the end of this method
-		uint currentIndex =4;
+		uint packetLength = PreparedStatementHandler.GeneratePrepareStatementPacket(preparedStatementPacket,statement);
+		AddPacketHeader(packetLength,0);
+		_Socket.send(_TempBuffer[0..packetLength + PACKT_HEADER_LENGTH]);
 
-		preparedStatementPacket[currentIndex]= PreparedStatementCommands.COM_STMT_PREPARE;
-		currentIndex++;
-		WriteString(preparedStatementPacket,statement,currentIndex);
-
-		//packet length exclues the 4 bytes packet header
-		uint packetLength = currentIndex -4;
-		/*write the packet length in the first 4 bytes (packet header). The protocol specifies that only 3 bytes are for the packet length and the forth is for the packet sequence. 
-		We will overwrite the forth byte later*/
-		write!(uint,Endian.littleEndian)(preparedStatementPacket,packetLength,0);
-		//write the packet sequeence in the forth byte
-		preparedStatementPacket[3]=0;
-
-		_Socket.send(preparedStatementPacket[0..currentIndex]);
 		return GetComStmtPrepareResponse();
 
 	}
@@ -442,11 +430,11 @@ The reason for not creating a separate module for this class is that is is the o
 	/***************************************************************
 	Add packet header to the _TempBuffer byte array
 	*/
-	private void AddPacketHeader(uint packetSize,uint packetSequence)
+	private void AddPacketHeader(uint packetSize,ubyte packetSequence)
 	{
 		write!(uint,Endian.littleEndian)(_TempBuffer,packetSize,0);
 		//write the packet sequence in the forth byte
-		_TempBuffer[3]=0;
+		_TempBuffer[3]=packetSequence;
 	}
 
 
