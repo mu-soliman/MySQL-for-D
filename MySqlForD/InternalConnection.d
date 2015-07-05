@@ -368,13 +368,10 @@ The reason for not creating a separate module for this class is that is is the o
 	{
 		
 		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
-		ubyte[] responseBuffer = _TempBuffer;
+		PacketHeader header = GetPacketHeader();
+		ubyte[] responseBuffer;// = _TempBuffer;
+		responseBuffer.length = header.PacketLength;
 		_Socket.receive(responseBuffer);
-		PacketHeader header = ExtractPacketHeader(responseBuffer);
-
-
-		//remove useless bytes
-		responseBuffer = responseBuffer[0..header.PacketLength];
 
 		if (responseBuffer[0]==0x00)
 		{
