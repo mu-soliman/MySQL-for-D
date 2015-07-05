@@ -102,17 +102,11 @@ The reason for not creating a separate module for this class is that is is the o
 		_ConnectionParameters = parameters;
 		_Socket.connect(new InternetAddress(parameters.ServerAddress,parameters.Port));
 		
-		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
-		ubyte[] buffer = _TempBuffer;
-		
+		PacketHeader header = GetPacketHeader();
+		ubyte[] buffer;
+		buffer.length = header.PacketLength;
 		_Socket.receive(buffer);
-		PacketHeader header = ExtractPacketHeader (buffer); 
-		
-
-		//remove useless bytes
-		buffer = buffer[0..header.PacketLength];
-		
-
+	
 		ushort initial_byte = buffer[0];
 
 		if (initial_byte == 0xFF)
@@ -124,6 +118,13 @@ The reason for not creating a separate module for this class is that is is the o
 			HandleServerHandshakeResponse();
 		}
 
+	}
+	private PacketHeader GetPacketHeader()
+	{
+		ubyte[] buffer;
+		buffer.length = 4;
+		_Socket.receive(buffer);
+		return ExtractPacketHeader(buffer);
 	}
 	
 	private void ProcessErrorMessage (ref ubyte[] error)
@@ -269,14 +270,10 @@ The reason for not creating a separate module for this class is that is is the o
 	
 	private void HandleServerHandshakeResponse()
 	{
-		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
-		ubyte[] buffer = _TempBuffer;
+		PacketHeader header = GetPacketHeader();
+		ubyte[] buffer;
+		buffer.length = header.PacketLength;
 		_Socket.receive(buffer);
-
-		PacketHeader header = ExtractPacketHeader(buffer);
-
-		//remove useless bytes
-		buffer = buffer[0..header.PacketLength];
 		
 		if (buffer[0]==0xff)
 		{
