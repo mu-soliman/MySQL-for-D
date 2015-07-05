@@ -96,6 +96,7 @@
   <exefile>$(OutDir)\$(ProjectName).lib</exefile>
   <useStdLibPath>1</useStdLibPath>
   <cRuntime>2</cRuntime>
+  <privatePhobos>0</privatePhobos>
   <additionalOptions />
   <preBuildCommand />
   <postBuildCommand />
@@ -197,6 +198,7 @@
   <exefile>$(OutDir)\$(ProjectName).dll</exefile>
   <useStdLibPath>1</useStdLibPath>
   <cRuntime>1</cRuntime>
+  <privatePhobos>0</privatePhobos>
   <additionalOptions />
   <preBuildCommand />
   <postBuildCommand />
@@ -209,8 +211,10 @@
   <File path="Exceptions.d" />
   <File path="Functions.d" />
   <File path="package.d" />
+  <File path="PacketHandler.d" />
+  <File path="PreparedStatement.d" />
   <File path="PreparedStatementPacketHandler.d" />
-  <File path="RAII.d" />
+  <File path="InternalConnection.d" />
   <File path="Test.d" />
   <File path="TestingHelper.d" />
  </Folder>

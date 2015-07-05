@@ -1,7 +1,4 @@
-/*******************************
-this is a module for classes that control resource lifetime using the RAII pattern
-*/
-module MySqlForD.RAII;
+module MySqlForD.InternalConnection;
 
 
 import std.socket;
@@ -16,20 +13,21 @@ import MySqlForD.Functions;
 import MySqlForD.Exceptions;
 import MySqlForD.ConnectionParameters;
 import MySqlForD.CommandResult;
+import MySqlForD.PreparedStatement;
 import MySqlForD.PreparedStatementPacketHandler;
+import MySqlForD.PacketHandler;
 
 /***********************************
 This is a connection that should be pooled later (didn't write pooling code yet). This is why I had to create an Internal connection object separate from the exposed Connection object. This pooling should be transparent to the Connection class
 user, this is why it is not exported
 The reason for not creating a separate module for this class is that is is the only class that has acccess to the constructor of PreparedStatement class
 */
- class InternalConnection {
+ class InternalConnection:PacketHandler {
 
 	static const uint AUTHENTICATION_PLUGIN_DATA_PART1_LENGTH			=	8;
 	static const uint RESERVED_SERVER_STRING_LENGTH						=	10;
 	static const uint SERVER_STATUS_LENGTH								=	2;
 	static const uint RESERVED_CLIENT_STRING_LENGTH						=	23;
-	static const uint PACKT_HEADER_LENGTH								=	4;
 
 	private ConnectionParameters	_ConnectionParameters;
 	private uint					_ProtocolVersion;
@@ -71,7 +69,6 @@ The reason for not creating a separate module for this class is that is is the o
 		return _ProtocolVersion;
 	}
 
-	
 	
 	@property{ 
 		string ServerVersion ()
@@ -196,7 +193,6 @@ The reason for not creating a separate module for this class is that is is the o
 		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected. first 4 bytes are for packet header that we will write at the end of this method
 		ubyte[] handshakeResponseMessage = _TempBuffer[4..$];
 
-		
 		uint currentIndex =0;
 
 		uint capabilities =GenerateCapabilityFlags();
@@ -235,7 +231,7 @@ The reason for not creating a separate module for this class is that is is the o
 			WriteString(handshakeResponseMessage,databaseName,currentIndex);
 		}
 
-		AddPacketHeader(currentIndex,1);
+		AddPacketHeader(_TempBuffer,currentIndex,1);
 		_Socket.send(_TempBuffer[0..currentIndex + PACKT_HEADER_LENGTH]);
 
 	}
@@ -276,20 +272,11 @@ The reason for not creating a separate module for this class is that is is the o
 		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
 		ubyte[] buffer = _TempBuffer;
 		_Socket.receive(buffer);
-		//packet size is found in the first three bytes
-		ubyte[4] packetSizeBytes;
-		packetSizeBytes[0..3]= buffer[0..3];
-		//add a forth byte to be able to convert to a uint
-		packetSizeBytes[3]=0;
-		uint packetSize = peek! (uint,Endian.littleEndian)(cast (ubyte[]) packetSizeBytes);
 
-		//remove packet header after reading it
-		buffer = buffer[3..$];
-		uint packetSequenceNumber = cast (uint) buffer[0];
-		buffer = buffer[1..$];
+		PacketHeader header = ExtractPacketHeader(buffer);
 
 		//remove useless bytes
-		buffer = buffer[0..packetSize];
+		buffer = buffer[0..header.PacketLength];
 		
 		if (buffer[0]==0xff)
 		{
@@ -307,19 +294,6 @@ The reason for not creating a separate module for this class is that is is the o
 
 	}
 	
-	private void ParseErrorPacket(ubyte[]packet)
-	{
-		//first byte is 0xff, error indicator. Since the call was passed here we assume its value and skip it
-		packet = packet[1..$];
-
-		ushort errorCode = read!(ushort,endian.littleEndian)(packet);
-
-		//skip state marker and state until we need them
-		packet = packet[6..$];
-		string errorMessage = ReadString(packet);
-		throw new MySqlDException(errorMessage,errorCode);
-		
-	}
 	
 	private CommandResult GetOkPacketResponse(ubyte[]packet)
 	{
@@ -342,7 +316,7 @@ The reason for not creating a separate module for this class is that is is the o
 		ubyte[] preparedStatementPacket = _TempBuffer[4..$];
 
 		uint packetLength = PreparedStatementHandler.GeneratePrepareStatementPacket(preparedStatementPacket,statement);
-		AddPacketHeader(packetLength,0);
+		AddPacketHeader(_TempBuffer,packetLength,0);
 		_Socket.send(_TempBuffer[0..packetLength + PACKT_HEADER_LENGTH]);
 
 		return GetComStmtPrepareResponse();
@@ -353,48 +327,10 @@ The reason for not creating a separate module for this class is that is is the o
 		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
 		ubyte[] responseBuffer = _TempBuffer;
 		_Socket.receive(responseBuffer);
-
-		//packet size is found in the first three bytes
-		ubyte[4] packetSizeBytes;
-		packetSizeBytes[0..3]= responseBuffer[0..3];
-		//add a forth byte to be able to convert to a uint
-		packetSizeBytes[3]=0;
-
-		uint packetSize = peek! (uint,Endian.littleEndian)(cast (ubyte[]) packetSizeBytes);
-		//remove bytes we have already consumed
-		responseBuffer = responseBuffer[3..$];
-
-		uint packetSequenceNumber = cast (uint) responseBuffer[0];
-		//once again remove bytes we have consumed
-		responseBuffer = responseBuffer[1..$];
-
-		//remove useless bytes
-		responseBuffer = responseBuffer[0..packetSize];
-
-		if (responseBuffer[0]==0x00)
-		{
-			//remove status byte
-			responseBuffer = responseBuffer[1..$];
-			uint statementId = read!(uint,Endian.littleEndian)(responseBuffer);
-			ushort columnsCount = read!(ushort,Endian.littleEndian)(responseBuffer);
-			ushort parametersCount = read! (ushort,Endian.littleEndian)(responseBuffer);
-			ushort warningsCount = read !(ushort,Endian.littleEndian)(responseBuffer);
-			PreparedStatement statement =  PreparedStatement(statementId,this,parametersCount);
-			statement.ColumnsCount = columnsCount;
-			statement.WarningsCount = warningsCount;
-			return statement;
-		}
-		else if (responseBuffer[0]== 0xff)
-		{
-			ParseErrorPacket (responseBuffer);
-		}
-
-		MySqlDException ex = new MySqlDException("Unsupported Response");
-		ex.ServerResponse = responseBuffer;
-		throw ex;
+		return PreparedStatementHandler.ParsePrepareStatementResponse(responseBuffer);
 
 	}
-	private void ClosePreparedStatement(uint statementId)
+	public void ClosePreparedStatement(uint statementId)
 	{
 		/*write the packet length in the first 4 bytes (packet header). The protocol specifies that only 3 bytes are for the packet length and the forth is for the packet sequence. 
 		We will overwrite the forth byte later*/
@@ -411,7 +347,7 @@ The reason for not creating a separate module for this class is that is is the o
 		currentIndex += 4;
 		_Socket.send(_TempBuffer[0..currentIndex]);
 	}
-	private CommandResult ExecuteCommandPreparedStatement(uint statementId,Variant[] parameters = null)
+	public CommandResult ExecuteCommandPreparedStatement(uint statementId,Variant[] parameters = null)
 	{
 		ExecutePreparedStatement(statementId,parameters);
 		return GetCommandComStmtExecuteResponse();
@@ -422,44 +358,13 @@ The reason for not creating a separate module for this class is that is is the o
 		ubyte[] preparedStatementPacket = _TempBuffer[4..$];
 
 		uint packetSize = PreparedStatementHandler.GeneratePreparedStatementExecutePacket(preparedStatementPacket,statementId,parameters);
-		AddPacketHeader(packetSize,0);
+		AddPacketHeader(_TempBuffer,packetSize,0);
 
 		_Socket.send(_TempBuffer[0..packetSize + PACKT_HEADER_LENGTH]);
 	}
 
-	/***************************************************************
-	Add packet header to the _TempBuffer byte array
-	*/
-	private void AddPacketHeader(uint packetSize,ubyte packetSequence)
-	{
-		write!(uint,Endian.littleEndian)(_TempBuffer,packetSize,0);
-		//write the packet sequence in the forth byte
-		_TempBuffer[3]=packetSequence;
-	}
 
 
-	/********************************************************************
-	Extract packet info from the packet and remove the packet header bytes from the input byte array
-	*/
-	private PacketHeader ExtractPacketHeader(ref ubyte[] buffer)
-	{
-		//packet size is found in the first three bytes
-		ubyte[4] packetSizeBytes;
-		packetSizeBytes[0..3]= buffer[0..3];
-		//add a forth byte to be able to convert to a uint
-		packetSizeBytes[3]=0;
-
-		uint packetSize = peek! (uint,Endian.littleEndian)(cast (ubyte[]) packetSizeBytes);
-		//remove bytes we have already consumed
-		buffer = buffer[3..$];
-
-		ubyte packetSequenceNumber =  buffer[0];
-		//once again remove bytes we have consumed
-		buffer = buffer[1..$];
-
-		PacketHeader header = new PacketHeader(packetSize,packetSequenceNumber);
-		return header;
-	}
 
 
 	CommandResult GetCommandComStmtExecuteResponse()
@@ -486,8 +391,6 @@ The reason for not creating a separate module for this class is that is is the o
 
 	}
 	
-	
-	
 	void Disconnect()
 	{
 		_Socket.shutdown(SocketShutdown.BOTH);
@@ -502,86 +405,6 @@ The reason for not creating a separate module for this class is that is is the o
 
 
 
-/**********************************************************
-A struct holding data about a prepared statement and allows for its execution and closing. 
-This struct is an appliction for the RAII principle, where the statement is closed already when the object is destroyed if it was not already closed. Uncolsed statements is a commor reason for resources and memory leak
-on the server.
-It was put in this file because its constructor is private and can be accessed only by InternalConnection class
-*/
-extern struct PreparedStatement
-{
-	private bool _IsClosed = false;
-	private uint _Id;
-	private ushort _NumberOfParameters;
-	private ushort _ColumnsCount;
-	private ushort _WarningsCount;
-	@property
-	{
-		private ushort WarningsCount(ushort warningsCount)
-		{
-			return _WarningsCount = warningsCount;
-		}
-		public ushort WarningsCount()
-		{
-			return _WarningsCount;
-		}
 
-
-		private ushort ColumnsCount(ushort columnsCount)
-		{
-			return _ColumnsCount = columnsCount;
-		}
-		public ushort ColumnsCount()
-		{
-			return _ColumnsCount;
-		}
-	}
-
-	private InternalConnection _Connection; 
-	
-	this(uint statementId,InternalConnection connection,ushort numberOfParameters)
-	{
-		_Id = statementId;
-		_Connection = connection;
-		_NumberOfParameters = numberOfParameters;
-	}
-	~this()
-	{
-		if (!_IsClosed)
-			Close();
-	}
-	public void Close()
-	{
-		if (_IsClosed)
-			throw new MySqlDException("Statement is already closed");
-		_Connection.ClosePreparedStatement(_Id);
-		_IsClosed = true;
-	}
-	public CommandResult ExecuteCommand(Variant[] parametersValues = null)
-	{
-		if (_NumberOfParameters !=0)
-		{
-			enforce(parametersValues!=null && parametersValues.length ==_NumberOfParameters,new MySqlDException("Number of parameters passed doesn't match statement's parameters count"));
-		}
-		return _Connection.ExecuteCommandPreparedStatement(_Id,parametersValues);
-	}
-
-}
-
-
-private class PacketHeader
-{
-	public uint PacketLength;
-	public ubyte PacketSequence;
-	this()
-	{
-
-	}
-	this(uint packetLength,ubyte packetSequence)
-	{
-		PacketLength = packetLength;
-		PacketSequence = packetSequence;
-	}
-}
 
 

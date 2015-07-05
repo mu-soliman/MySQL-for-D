@@ -7,10 +7,11 @@ import std.datetime;
 import std.stdio;
 
 import MySqlForD.Exceptions;
-
 import MySqlForD.Functions;
+import MySqlForD.PreparedStatement;
+import MySqlForD.PacketHandler;
 
-class PreparedStatementPacketHandler
+class PreparedStatementPacketHandler:PacketHandler
 {
 	private enum PreparedStatementCommands
 	{
@@ -111,6 +112,31 @@ class PreparedStatementPacketHandler
 
 		}		
 		return currentIndex;
+	}
+	public PreparedStatement ParsePrepareStatementResponse(ubyte[] buffer)
+	{		
+
+		PacketHeader header = ExtractPacketHeader(buffer);
+		if (buffer[0]==0x00)
+		{
+			//remove status byte
+			buffer = buffer[1..$];
+			uint statementId = read!(uint,Endian.littleEndian)(buffer);
+			ushort columnsCount = read!(ushort,Endian.littleEndian)(buffer);
+			ushort parametersCount = read! (ushort,Endian.littleEndian)(buffer);
+			ushort warningsCount = read !(ushort,Endian.littleEndian)(buffer);
+			PreparedStatement statement =  PreparedStatement(statementId,parametersCount,columnsCount,warningsCount);
+			return statement;
+		}
+		else if (buffer[0]== 0xff)
+		{
+			ParseErrorPacket (buffer);
+		}
+
+		MySqlDException ex = new MySqlDException("Unsupported Response");
+		ex.ServerResponse = buffer;
+		throw ex;
+
 	}
 
 	
