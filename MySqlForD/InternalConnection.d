@@ -366,10 +366,8 @@ The reason for not creating a separate module for this class is that is is the o
 
 	CommandResult GetCommandComStmtExecuteResponse()
 	{
-		
-		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
 		PacketHeader header = GetPacketHeader();
-		ubyte[] responseBuffer;// = _TempBuffer;
+		ubyte[] responseBuffer ;
 		responseBuffer.length = header.PacketLength;
 		_Socket.receive(responseBuffer);
 
