@@ -322,9 +322,45 @@ The reason for not creating a separate module for this class is that is is the o
 	private PreparedStatement GetComStmtPrepareResponse()
 	{
 		//create an alias for _TempBuffer to slice easily without _TempBuffer gets affected
-		ubyte[] responseBuffer = _TempBuffer;
+		PacketHeader header = GetPacketHeader();
+		ubyte[] responseBuffer;
+		responseBuffer.length = header.PacketLength;
 		_Socket.receive(responseBuffer);
-		return PreparedStatementHandler.ParsePrepareStatementResponse(responseBuffer);
+		
+		PreparedStatement statement = PreparedStatementHandler.ParsePrepareStatementResponseFirstPacket(responseBuffer);
+		
+		if (statement.ParametersCount>0)
+		{
+			for(int i=0;i<statement.ParametersCount;i++)
+			{
+				PacketHeader parameterDefinitionPacketHeader = GetPacketHeader();
+				responseBuffer.length = parameterDefinitionPacketHeader.PacketLength;
+				_Socket.receive (responseBuffer);
+			}
+			/*TODO: we can use information about parameter definition and return them as members in the prepared statemen object. later 
+			this info can be used for some error checking before acutally sending the parameters to the server for prepared statement execution*/
+
+			PacketHeader eofPacketHeader = GetPacketHeader();
+			responseBuffer.length = eofPacketHeader.PacketLength;
+			_Socket.receive (responseBuffer);
+			
+		}
+		if (statement.ColumnsCount >0)
+		{
+			for(int i=0;i<statement.ColumnsCount;i++)
+			{
+				PacketHeader columnDefinitionPacketHeader = GetPacketHeader();
+				responseBuffer.length = columnDefinitionPacketHeader.PacketLength;
+				_Socket.receive (responseBuffer);
+			}
+			/*TODO: we can use information about column definition and return them as members in the prepared statemen object. later 
+			this info can be used for some error checking before acutally sending the parameters to the server for prepared statement execution*/
+
+			PacketHeader eofPacketHeader = GetPacketHeader();
+			responseBuffer.length = eofPacketHeader.PacketLength;
+			_Socket.receive (responseBuffer);
+		}
+		return statement;
 
 	}
 	public void ClosePreparedStatement(uint statementId)

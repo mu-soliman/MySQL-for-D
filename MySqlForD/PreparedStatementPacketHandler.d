@@ -113,10 +113,8 @@ class PreparedStatementPacketHandler:PacketHandler
 		}		
 		return currentIndex;
 	}
-	public PreparedStatement ParsePrepareStatementResponse(ubyte[] buffer)
+	public PreparedStatement ParsePrepareStatementResponseFirstPacket(ubyte[] buffer)
 	{		
-
-		PacketHeader header = ExtractPacketHeader(buffer);
 		if (buffer[0]==0x00)
 		{
 			//remove status byte

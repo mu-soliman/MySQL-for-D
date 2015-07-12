@@ -55,6 +55,11 @@ extern struct PreparedStatement
 		{
 			return _Connection;
 		}
+
+		public ushort ParametersCount()
+		{
+			return _NumberOfParameters;
+		}
 	}
 
 	
